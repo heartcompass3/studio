@@ -5,7 +5,8 @@ import {
   Scissors, Settings2, Sliders, Smartphone, Monitor, 
   FlipHorizontal, Eye, ZoomIn, ZoomOut, Image as ImageIcon,
   Sparkles, Upload, Sun, Check, Sparkle, ArrowLeft, ArrowRight,
-  Gauge, Type, Video, Layers, Palette, Plus, Trash2, Music
+  Gauge, Type, Video, Layers, Palette, Plus, Trash2, Music,
+  RefreshCw, Scan, X
 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 import { Teleprompter } from './Teleprompter';
@@ -60,10 +61,16 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>('9:16');
   const [isMirrored, setIsMirrored] = useState(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [framingMode, setFramingMode] = useState<'cover' | 'wide'>('cover');
 
-  // Digital Zoom State (1.0x - 3.0x)
-  const [zoomLevel, setZoomLevel] = useState(1.0);
+  // Lens & Zoom State (0.5x, 0.7x, 1.0x, 1.5x, 2.0x, 3.0x)
+  const [zoomLevel, setZoomLevel] = useState(0.7); // Default to comfortable 0.7x wide desk/handheld FOV
   const [showZoomBar, setShowZoomBar] = useState(false);
+  const [hardwareZoomSupported, setHardwareZoomSupported] = useState(false);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 0.5, max: 3.0, step: 0.1 });
 
   // Voiceover / Faceless B-Roll & Slideshow State
   const [bgSourceType, setBgSourceType] = useState<BackgroundSourceType>('gradient');
@@ -158,17 +165,38 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     });
   }, [bgSlides]);
 
-  const startCamera = async () => {
+  const loadVideoDevices = async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+      setVideoDevices(videoInputs);
+    } catch (e) {
+      console.warn('enumerateDevices note:', e);
+    }
+  };
+
+  const startCamera = async (cameraIdOverride?: string, facingOverride?: 'user' | 'environment') => {
     stopCamera();
     setIsCameraLoading(true);
     try {
+      const targetFacing = facingOverride || facingMode;
+      const targetCameraId = cameraIdOverride !== undefined ? cameraIdOverride : selectedCameraId;
+
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: aspectRatio === '9:16' ? 1080 : 1920 },
+        height: { ideal: aspectRatio === '9:16' ? 1920 : 1080 },
+        frameRate: { ideal: 30, max: 60 }
+      };
+
+      if (targetCameraId) {
+        videoConstraints.deviceId = { exact: targetCameraId };
+      } else {
+        videoConstraints.facingMode = targetFacing;
+      }
+
       const constraints: MediaStreamConstraints = {
-        video: {
-          width: { ideal: aspectRatio === '9:16' ? 1080 : 1920 },
-          height: { ideal: aspectRatio === '9:16' ? 1920 : 1080 },
-          frameRate: { ideal: 30, max: 60 },
-          facingMode: 'user'
-        },
+        video: videoConstraints,
         audio: {
           echoCancellation: true,
           noiseSuppression: voiceEffectsRef.current.noiseReduction !== false,
@@ -179,6 +207,26 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        const capabilities: any = typeof videoTrack.getCapabilities === 'function' ? videoTrack.getCapabilities() : {};
+        if (capabilities && capabilities.zoom) {
+          setHardwareZoomSupported(true);
+          const minZ = typeof capabilities.zoom.min === 'number' ? capabilities.zoom.min : 0.5;
+          const maxZ = typeof capabilities.zoom.max === 'number' ? capabilities.zoom.max : 3.0;
+          const stepZ = typeof capabilities.zoom.step === 'number' ? capabilities.zoom.step : 0.1;
+          setZoomRange({ min: minZ, max: maxZ, step: stepZ });
+          
+          if (zoomLevel >= minZ && zoomLevel <= maxZ) {
+            try {
+              await videoTrack.applyConstraints({ advanced: [{ zoom: zoomLevel } as any] });
+            } catch (zErr) {}
+          }
+        } else {
+          setHardwareZoomSupported(false);
+        }
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -195,12 +243,34 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       }
       setRecordedUrl(null);
       setRecordedBlob(null);
+
+      void loadVideoDevices();
     } catch (err: any) {
       console.error('Camera Access Error:', err);
       onError('לא ניתן לגשת למצלמה. אנא ודא הרשאות בדפדפן (סמל המנעול ליד שורת הכתובת).');
     } finally {
       setIsCameraLoading(false);
     }
+  };
+
+  const applyZoom = async (newZoom: number) => {
+    const clamped = Math.max(0.5, Math.min(3.0, Number(newZoom.toFixed(1))));
+    setZoomLevel(clamped);
+    const videoTrack = streamRef.current?.getVideoTracks()[0];
+    if (videoTrack && hardwareZoomSupported) {
+      try {
+        const hwZoom = Math.max(zoomRange.min, Math.min(zoomRange.max, clamped));
+        await videoTrack.applyConstraints({ advanced: [{ zoom: hwZoom } as any] });
+      } catch (e) {}
+    }
+  };
+
+  const toggleFacingMode = async () => {
+    const nextFacing = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextFacing);
+    setSelectedCameraId('');
+    setIsMirrored(nextFacing === 'user');
+    await startCamera('', nextFacing);
   };
 
   const stopCamera = () => {
@@ -383,15 +453,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
           const targetAspect = 9 / 16;
           const srcAspect = vw / vh;
-          let sx = 0, sy = 0, sw = vw, sh = vh;
-
-          if (srcAspect > targetAspect) {
-            sw = vh * targetAspect;
-            sx = (vw - sw) / 2;
-          } else {
-            sh = vw / targetAspect;
-            sy = (vh - sh) / 2;
-          }
 
           ctx.save();
           if (isMirrored) {
@@ -401,7 +462,35 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           if (brightness !== 1) {
             ctx.filter = `brightness(${brightness})`;
           }
-          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
+
+          if (zoomLevel < 1.0 || framingMode === 'wide') {
+            // Wide-Angle / Low Zoom framing: avoid extreme tight close-up crops!
+            ctx.save();
+            ctx.filter = `blur(24px) brightness(0.4)`;
+            ctx.drawImage(video, 0, 0, vw, vh, -10, -10, outWidth + 20, outHeight + 20);
+            ctx.restore();
+
+            const effectiveScale = zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : 1.0;
+            const fitW = outWidth * effectiveScale;
+            const fitH = fitW / srcAspect;
+            const fitX = (outWidth - fitW) / 2;
+            const fitY = (outHeight - fitH) / 2;
+            ctx.drawImage(video, 0, 0, vw, vh, fitX, fitY, fitW, fitH);
+          } else {
+            // Standard crop with zoom factor
+            let sw = vw / zoomLevel;
+            let sh = vh / zoomLevel;
+            if (srcAspect > targetAspect) {
+              sw = (vh * targetAspect) / zoomLevel;
+              sh = vh / zoomLevel;
+            } else {
+              sh = (vw / targetAspect) / zoomLevel;
+              sw = vw / zoomLevel;
+            }
+            const sx = Math.max(0, (vw - sw) / 2);
+            const sy = Math.max(0, (vh - sh) / 2);
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
+          }
           ctx.restore();
         };
 
@@ -649,38 +738,38 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   return (
     <div className="flex flex-col h-[calc(100vh-95px)] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
       
-      {/* Top Studio Controls Bar */}
-      <div className="bg-slate-900/90 backdrop-blur px-6 py-3 border-b border-slate-800 flex items-center justify-between z-30">
-        <div className="flex items-center gap-3">
+      {/* Top Studio Controls Bar - Mobile Horizontal Touch Ribbon */}
+      <div className="bg-slate-900/95 backdrop-blur px-3 sm:px-6 py-2.5 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar touch-pan-x z-30 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           
           {/* Main Mode Toggle: Camera vs. Voiceover / Faceless */}
-          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-inner">
+          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-inner shrink-0">
             <button
               onClick={() => handleModeChange('camera')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
                 studioMode === 'camera' 
                   ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow' 
                   : 'text-slate-400 hover:text-white'
               }`}
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>מצלמת וידאו</span>
+              <span>מצלמה</span>
             </button>
             <button
               onClick={() => handleModeChange('voiceover')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
                 studioMode === 'voiceover' 
                   ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow' 
                   : 'text-slate-400 hover:text-white'
               }`}
             >
               <Mic className="w-3.5 h-3.5 text-indigo-400" />
-              <span>קריינות ורקעי B-Roll</span>
+              <span>קריינות ו-B-Roll</span>
             </button>
           </div>
 
           {isRecording && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-rose-500/20 border border-rose-500/40 rounded-full text-rose-400 text-xs font-bold animate-pulse">
+            <div className="flex items-center gap-2 px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 rounded-full text-rose-400 text-xs font-bold animate-pulse whitespace-nowrap shrink-0">
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
               <span>מקליט: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
             </div>
@@ -688,114 +777,122 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         </div>
 
         {/* Action Controls & Format Switcher */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
-          {/* Mic Boost Control Toggle */}
-          <div className="relative">
-            <button
-              onClick={() => setShowMicControls(prev => !prev)}
-              title="ניקוי רעשים, עוצמה, בס והדהוד לקול"
-              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                showMicControls
-                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-              }`}
-            >
-              <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span>צליל הקול</span>
-            </button>
-
-            {showMicControls && (
-              <div className="absolute top-full left-0 mt-2 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-30 w-72 space-y-3">
-                <label className="flex items-center gap-2 text-xs font-bold text-white">
-                  <input type="checkbox" aria-label="ניקוי רעשי רקע" checked={voiceEffects.noiseReduction !== false}
-                    onChange={event => updateVoiceEffects({ ...voiceEffects, noiseReduction: event.target.checked })} />
-                  ניקוי רעשי רקע
-                </label>
-                <p className="text-[11px] text-slate-400 leading-relaxed">סינון המיקרופון וניקוי עדין בין משפטים. רעשים חזקים בזמן הדיבור עדיין עשויים להישמע. להקלטת דיבור צלולה התחל בלי הדהוד ובהגברה נמוכה.</p>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.speech)} className="px-2 py-1 rounded bg-slate-800 text-xs text-white">דיבור יבש</button>
-                  <button type="button" onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.meditation)} className="px-2 py-1 rounded bg-indigo-700 text-xs text-white">מדיטציה עדינה</button>
-                </div>
-                <div className="flex items-center justify-between text-xs font-bold text-white">
-                  <span>עוצמת הגברה:</span>
-                  <span className="text-indigo-400 font-mono">{Math.round(micGain * 100)}%</span>
-                </div>
-                <input
-                  aria-label="עוצמת הגברת מיקרופון"
-                  type="range"
-                  min="1"
-                  max="4"
-                  step="0.1"
-                  value={micGain}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setMicGain(val);
-                    if (boostedAudioPipelineRef.current) {
-                      boostedAudioPipelineRef.current.setGain(val);
-                    }
-                  }}
-                  className="w-full accent-indigo-500"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400">
-                  <span>100% (רגיל)</span>
-                  <span>200%</span>
-                  <span>400% (מקסימום)</span>
-                </div>
-                <label className="block text-xs text-slate-200">
-                  בס: {voiceEffects.bassDb} dB
-                  <input aria-label="בס לקול" type="range" min="0" max="9" step="0.5" value={voiceEffects.bassDb}
-                    onChange={(event) => updateVoiceEffects({ ...voiceEffects, bassDb: Number(event.target.value) })}
-                    className="w-full accent-indigo-500" />
-                </label>
-                <label className="block text-xs text-slate-200">
-                  הדהוד: {Math.round(voiceEffects.reverbMix * 100)}%
-                  <input aria-label="הדהוד לקול" type="range" min="0" max="0.45" step="0.01" value={voiceEffects.reverbMix}
-                    onChange={(event) => updateVoiceEffects({ ...voiceEffects, reverbMix: Number(event.target.value) })}
-                    className="w-full accent-indigo-500" />
-                </label>
-                <p className="text-[11px] leading-relaxed text-slate-400">הבס מוסיף עומק לקול וההדהוד מוסיף מרחב. האפקטים נשמרים בהקלטה; אפשר לשנות אותם גם בזמן ההקלטה. האזן לתוצאה בהשמעה החוזרת.</p>
+          {studioMode === 'camera' && (
+            <>
+              {/* Quick Lens Switcher Pills (0.5x Ultra-Wide, 0.7x Desk/Selfie, 1.0x Normal) */}
+              <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
+                {[
+                  { label: '0.5x', val: 0.5, title: 'עדשה רחבה במיוחד (Ultra-Wide)' },
+                  { label: '0.7x', val: 0.7, title: 'זווית שולחן / סלפי נוחה' },
+                  { label: '1.0x', val: 1.0, title: 'זווית רגילה' },
+                  { label: '1.5x', val: 1.5, title: 'תקריב' }
+                ].map((lens) => (
+                  <button
+                    key={lens.label}
+                    onClick={() => applyZoom(lens.val)}
+                    title={lens.title}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
+                      Math.abs(zoomLevel - lens.val) < 0.05
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {lens.label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
+
+              {/* Flip Camera (Front / Back) */}
+              <button
+                onClick={toggleFacingMode}
+                title="החלף בין מצלמה קדמית לאחורית"
+                className="px-2.5 py-1.5 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1 shrink-0 active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">{facingMode === 'user' ? 'סלפי' : 'אחורית'}</span>
+              </button>
+
+              {/* Framing Mode Toggle (Cover vs Wide) */}
+              <button
+                onClick={() => setFramingMode(prev => prev === 'cover' ? 'wide' : 'cover')}
+                title={framingMode === 'cover' ? 'מצב חיתוך מסך מלא (רילס)' : 'מצב זווית רחבה מלאה (ללא חיתוך פנים)'}
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 shrink-0 active:scale-95 ${
+                  framingMode === 'wide'
+                    ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                <Scan className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">{framingMode === 'wide' ? 'זווית רחבה' : 'חיתוך מלא'}</span>
+              </button>
+            </>
+          )}
+
+          {/* Mic Boost Control Toggle */}
+          <button
+            onClick={() => {
+              setShowMicControls(prev => !prev);
+              setShowPrompterSettings(false);
+              setShowZoomBar(false);
+              setShowControls(false);
+            }}
+            title="ניקוי רעשים, עוצמה, בס והדהוד לקול"
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 ${
+              showMicControls
+                ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
+                : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">צליל הקול</span>
+          </button>
 
           {/* Prompter Speed & Settings Toggle */}
           <button
-            onClick={() => setShowPrompterSettings(prev => !prev)}
+            onClick={() => {
+              setShowPrompterSettings(prev => !prev);
+              setShowMicControls(false);
+              setShowZoomBar(false);
+              setShowControls(false);
+            }}
             title="בורר מהירות והגדרות טלפרומפטר"
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 ${
               showPrompterSettings
                 ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
                 : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
             }`}
           >
             <Gauge className="w-3.5 h-3.5 text-indigo-400" />
-            <span>מהירות: {scrollSpeed}x</span>
+            <span>{scrollSpeed}x</span>
           </button>
 
           {/* Aspect Ratio Switch */}
-          <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700">
+          <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
             <button
               onClick={() => {
                 setAspectRatio('9:16');
                 if (studioMode === 'camera' && isCameraActive) startCamera();
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              title="יחס גובה 9:16 (רילס / סטורי / טיקטוק)"
+              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
                 aspectRatio === '9:16' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Smartphone className="w-3.5 h-3.5" /> 9:16 (רילס)
+              <Smartphone className="w-3.5 h-3.5" /> <span className="hidden sm:inline">9:16</span>
             </button>
             <button
               onClick={() => {
                 setAspectRatio('16:9');
                 if (studioMode === 'camera' && isCameraActive) startCamera();
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              title="יחס רוחב 16:9 (יוטיוב / מחשב)"
+              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
                 aspectRatio === '16:9' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Monitor className="w-3.5 h-3.5" /> 16:9 (רוחב)
+              <Monitor className="w-3.5 h-3.5" /> <span className="hidden sm:inline">16:9</span>
             </button>
           </div>
 
@@ -804,8 +901,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               {/* Mirror Camera */}
               <button
                 onClick={() => setIsMirrored(prev => !prev)}
-                title="היפוך מראה למצלמה"
-                className={`p-2 rounded-xl border transition-all ${
+                title="היפוך מראה למצלמה (ללא השפעה על הטקסט)"
+                className={`p-2 rounded-xl border shrink-0 transition-all ${
                   isMirrored ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
                 }`}
               >
@@ -814,9 +911,14 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
               {/* Zoom Toggle */}
               <button
-                onClick={() => setShowZoomBar(prev => !prev)}
-                title="זום דיגיטלי"
-                className={`p-2 rounded-xl border transition-all ${
+                onClick={() => {
+                  setShowZoomBar(prev => !prev);
+                  setShowMicControls(false);
+                  setShowPrompterSettings(false);
+                  setShowControls(false);
+                }}
+                title="זום ומרחק מצלמה"
+                className={`p-2 rounded-xl border shrink-0 transition-all ${
                   showZoomBar ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
                 }`}
               >
@@ -825,9 +927,14 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
               {/* Lighting Controls */}
               <button
-                onClick={() => setShowControls(prev => !prev)}
+                onClick={() => {
+                  setShowControls(prev => !prev);
+                  setShowMicControls(false);
+                  setShowPrompterSettings(false);
+                  setShowZoomBar(false);
+                }}
                 title="תאורה וצבע"
-                className={`p-2 rounded-xl border transition-all ${
+                className={`p-2 rounded-xl border shrink-0 transition-all ${
                   showControls ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
                 }`}
               >
@@ -938,14 +1045,123 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         </div>
       )}
 
-      {/* Floating Control Sliders (Prompter / Zoom / Lighting) */}
-      {(showPrompterSettings || showZoomBar || showControls) && (
-        <div className="bg-slate-900/95 border-b border-slate-800 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-300 z-20 animate-in slide-in-from-top duration-200">
+      {/* Floating Control Drawers (Mic / Prompter / Zoom / Lighting) */}
+      {(showMicControls || showPrompterSettings || showZoomBar || showControls) && (
+        <div className="bg-slate-900/95 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 z-20 animate-in slide-in-from-top duration-200 shrink-0">
           
+          {/* Sound & Voice Settings Panel */}
+          {showMicControls && (
+            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4">
+                <span className="font-bold flex items-center gap-1.5 text-white">
+                  <Volume2 className="w-4 h-4 text-indigo-400" />
+                  צליל הקול:
+                </span>
+                
+                {/* Noise Reduction Toggle */}
+                <label className="flex items-center gap-1.5 font-bold text-white cursor-pointer bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700 select-none">
+                  <input
+                    type="checkbox"
+                    aria-label="ניקוי רעשי רקע"
+                    checked={voiceEffects.noiseReduction !== false}
+                    onChange={e => updateVoiceEffects({ ...voiceEffects, noiseReduction: e.target.checked })}
+                    className="accent-indigo-500 rounded"
+                  />
+                  <span>ניקוי רעשים</span>
+                </label>
+
+                {/* Speech / Depth Presets */}
+                <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-xl border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.speech)}
+                    className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all ${
+                      voiceEffects.bassDb === 0 && voiceEffects.reverbMix === 0 ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    דיבור צלול
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.meditation)}
+                    className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all ${
+                      voiceEffects.bassDb > 0 || voiceEffects.reverbMix > 0 ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    מדיטציה עדינה
+                  </button>
+                </div>
+
+                {/* Gain Slider */}
+                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
+                  <span className="text-slate-300">הגברה:</span>
+                  <span className="text-indigo-400 font-mono font-bold min-w-[34px]">{Math.round(micGain * 100)}%</span>
+                  <input
+                    aria-label="עוצמת הגברת מיקרופון"
+                    type="range"
+                    min="1"
+                    max="4"
+                    step="0.1"
+                    value={micGain}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setMicGain(val);
+                      if (boostedAudioPipelineRef.current) {
+                        boostedAudioPipelineRef.current.setGain(val);
+                      }
+                    }}
+                    className="w-16 sm:w-24 accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* Bass Slider */}
+                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
+                  <span className="text-slate-300">בס:</span>
+                  <span className="text-indigo-400 font-mono font-bold min-w-[28px]">{voiceEffects.bassDb}dB</span>
+                  <input
+                    aria-label="בס לקול"
+                    type="range"
+                    min="0"
+                    max="9"
+                    step="0.5"
+                    value={voiceEffects.bassDb}
+                    onChange={(e) => updateVoiceEffects({ ...voiceEffects, bassDb: Number(e.target.value) })}
+                    className="w-14 sm:w-20 accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* Reverb Slider */}
+                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
+                  <span className="text-slate-300">הדהוד:</span>
+                  <span className="text-indigo-400 font-mono font-bold min-w-[30px]">{Math.round(voiceEffects.reverbMix * 100)}%</span>
+                  <input
+                    aria-label="הדהוד לקול"
+                    type="range"
+                    min="0"
+                    max="0.45"
+                    step="0.01"
+                    value={voiceEffects.reverbMix}
+                    onChange={(e) => updateVoiceEffects({ ...voiceEffects, reverbMix: Number(e.target.value) })}
+                    className="w-14 sm:w-20 accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => setShowMicControls(false)}
+                title="סגור חלונית צליל"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Prompter Settings Panel */}
           {showPrompterSettings && (
-            <div className="flex flex-wrap items-center justify-between w-full gap-4 pb-1">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <span className="font-bold flex items-center gap-1.5 text-white">
                   <Gauge className="w-4 h-4 text-indigo-400" />
                   מהירות טלפרומפטר:
@@ -997,28 +1213,27 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                     </button>
                   ))}
                 </div>
-              </div>
 
-              {/* Font Size & Prompter Play/Pause */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
+                {/* Font Size */}
+                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
                   <span className="font-bold flex items-center gap-1 text-slate-300">
                     <Type className="w-3.5 h-3.5 text-indigo-400" />
-                    גודל גופן: {fontSize}px
+                    גופן: {fontSize}px
                   </span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setFontSize(prev => Math.max(20, prev - 2))} className="w-6 h-6 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-xs">-</button>
-                    <button onClick={() => setFontSize(prev => Math.min(64, prev + 2))} className="w-6 h-6 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-xs">+</button>
+                    <button onClick={() => setFontSize(prev => Math.max(20, prev - 2))} className="w-5 h-5 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold text-xs">-</button>
+                    <button onClick={() => setFontSize(prev => Math.min(64, prev + 2))} className="w-5 h-5 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold text-xs">+</button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 border-r border-slate-700 pr-3">
+                {/* Prompter Play/Pause & Restart */}
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsScrolling(prev => !prev)}
                     className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow"
                   >
                     {isScrolling ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                    <span>{isScrolling ? 'השהה גלילה' : 'הפעל גלילה'}</span>
+                    <span>{isScrolling ? 'השהה' : 'הפעל'}</span>
                   </button>
 
                   <button
@@ -1033,54 +1248,99 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
-          )}
 
-          {showZoomBar && (
-            <div className="flex items-center gap-3">
-              <span className="font-bold flex items-center gap-1.5"><ZoomIn className="w-3.5 h-3.5 text-indigo-400" /> זום: {zoomLevel.toFixed(1)}x</span>
-              <input
-                type="range"
-                min="1.0"
-                max="3.0"
-                step="0.1"
-                value={zoomLevel}
-                onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
-                className="w-32 accent-indigo-500 cursor-pointer"
-              />
+              {/* Close Button */}
               <button
-                onClick={() => setZoomLevel(1.0)}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[11px] font-bold"
+                onClick={() => setShowPrompterSettings(false)}
+                title="סגור חלונית פרומפטר"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
               >
-                איפוס
+                <X className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          {showControls && (
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <span className="font-bold flex items-center gap-1"><Sun className="w-3.5 h-3.5 text-amber-400" /> בהירות: {Math.round(brightness * 100)}%</span>
+          {/* Zoom & Distance Panel */}
+          {showZoomBar && (
+            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-bold flex items-center gap-1.5 text-xs text-white">
+                  <ZoomIn className="w-3.5 h-3.5 text-indigo-400" /> זום ומרחק: {zoomLevel.toFixed(1)}x
+                </span>
                 <input
+                  aria-label="זום מצלמה"
                   type="range"
-                  min="0.7"
-                  max="1.5"
-                  step="0.05"
-                  value={brightness}
-                  onChange={(e) => setBrightness(parseFloat(e.target.value))}
-                  className="w-28 accent-amber-500 cursor-pointer"
+                  min="0.5"
+                  max="3.0"
+                  step="0.1"
+                  value={zoomLevel}
+                  onChange={(e) => applyZoom(parseFloat(e.target.value))}
+                  className="w-32 accent-indigo-500 cursor-pointer"
                 />
+                <div className="flex items-center gap-1">
+                  {[0.5, 0.7, 1.0, 1.5, 2.0].map((lvl) => (
+                    <button
+                      key={lvl}
+                      onClick={() => applyZoom(lvl)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        Math.abs(zoomLevel - lvl) < 0.05
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {lvl}x
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={ringLight}
-                  onChange={(e) => setRingLight(e.target.checked)}
-                  className="accent-indigo-500 rounded"
-                />
-                <span className="font-bold">רינגלייט (מסך לבן מרכך)</span>
-              </label>
+              {/* Close Button */}
+              <button
+                onClick={() => setShowZoomBar(false)}
+                title="סגור חלונית זום"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Lighting & Brightness Panel */}
+          {showControls && (
+            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold flex items-center gap-1"><Sun className="w-3.5 h-3.5 text-amber-400" /> בהירות: {Math.round(brightness * 100)}%</span>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.5"
+                    step="0.05"
+                    value={brightness}
+                    onChange={(e) => setBrightness(parseFloat(e.target.value))}
+                    className="w-28 accent-amber-500 cursor-pointer"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ringLight}
+                    onChange={(e) => setRingLight(e.target.checked)}
+                    className="accent-indigo-500 rounded"
+                  />
+                  <span className="font-bold">רינגלייט (מסך לבן מרכך)</span>
+                </label>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => setShowControls(false)}
+                title="סגור חלונית תאורה"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>
@@ -1111,17 +1371,38 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           
           {/* Active Camera Stream */}
           {studioMode === 'camera' && !recordedUrl && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                filter: `brightness(${brightness})`,
-                transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`
-              }}
-              className={`w-full h-full object-cover transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
-            />
+            <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-black">
+              {/* Background ambient fill if in wide mode or low zoom */}
+              {(zoomLevel < 1.0 || framingMode === 'wide') && (
+                <video
+                  ref={(el) => {
+                    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                      el.play().catch(() => {});
+                    }
+                  }}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    filter: `brightness(${brightness * 0.4}) blur(20px)`,
+                    transform: `scale(${isMirrored ? -1.15 : 1.15}, 1.15)`
+                  }}
+                  className={`absolute inset-0 w-full h-full object-cover pointer-events-none opacity-80 ${!isCameraActive ? 'hidden' : ''}`}
+                />
+              )}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  filter: `brightness(${brightness})`,
+                  transform: `scale(${isMirrored ? -(zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel) : (zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel)}, ${zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel})`
+                }}
+                className={`w-full h-full relative z-10 ${framingMode === 'wide' || zoomLevel < 1.0 ? 'object-contain' : 'object-cover'} transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
+              />
+            </div>
           )}
 
           {/* Voiceover Mode Background Visual Viewport */}
@@ -1192,7 +1473,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               <h3 className="text-lg font-bold text-white mb-1">המצלמה אינה פעילה</h3>
               <p className="text-xs text-slate-400 max-w-xs mb-6">לחץ על הכפתור למטה כדי להפעיל את המצלמה והמיקרופון ולהתחיל בהקלטה.</p>
               <button
-                onClick={startCamera}
+                onClick={() => startCamera()}
                 disabled={isCameraLoading}
                 className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all"
               >
@@ -1212,7 +1493,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 fontSize={fontSize}
                 opacity={textOpacity}
                 isCameraActive={studioMode === 'camera' ? isCameraActive : true}
-                isMirrored={studioMode === 'camera' ? isMirrored : false}
+                isMirrored={false}
                 restartSignal={teleprompterRestartSignal}
                 onSpeedChange={setScrollSpeed}
                 onFontSizeChange={setFontSize}
@@ -1249,7 +1530,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </button>
           ) : studioMode === 'camera' ? (
             <button
-              onClick={startCamera}
+              onClick={() => startCamera()}
               disabled={isCameraLoading}
               className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-all"
             >

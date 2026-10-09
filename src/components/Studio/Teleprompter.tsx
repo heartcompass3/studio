@@ -42,10 +42,13 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   const currentOffsetRef = useRef<number>(0);
   const speedRef = useRef(scrollSpeed);
 
+  // Mobile Touch Gestures
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartOffsetRef = useRef<number>(0);
+
   const [offsetY, setOffsetY] = useState(0);
   const [maxScroll, setMaxScroll] = useState(1000);
   const [showFocusGuide, setShowFocusGuide] = useState(true);
-  const [mirrorHorizontal, setMirrorHorizontal] = useState(isMirrored);
   const [hasEnded, setHasEnded] = useState(false);
 
   // Calculate word count & estimated duration
@@ -93,10 +96,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       startOffsetRef.current = currentOffsetRef.current;
     }
   }, [scrollSpeed, isScrolling]);
-
-  useEffect(() => {
-    setMirrorHorizontal(isMirrored);
-  }, [isMirrored]);
 
   useEffect(() => {
     const timer = setTimeout(updateBounds, 100);
@@ -185,6 +184,29 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     setOffsetY(newOffset);
   };
 
+  // Mobile Touch Swipe Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartYRef.current = e.touches[0].clientY;
+      touchStartOffsetRef.current = currentOffsetRef.current;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartYRef.current !== null && e.touches.length === 1) {
+      const deltaY = touchStartYRef.current - e.touches[0].clientY;
+      const newOffset = Math.max(0, Math.min(maxScroll, touchStartOffsetRef.current + deltaY));
+      currentOffsetRef.current = newOffset;
+      startOffsetRef.current = newOffset;
+      startTimeRef.current = performance.now();
+      setOffsetY(newOffset);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchStartYRef.current = null;
+  };
+
   // Jump to specific paragraph on click
   const handleParagraphClick = (idx: number, e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -262,11 +284,13 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       <div
         ref={containerRef}
         onWheel={handleWheel}
-        className="absolute inset-0 overflow-hidden pointer-events-auto cursor-grab active:cursor-grabbing"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="absolute inset-0 overflow-hidden pointer-events-auto cursor-grab active:cursor-grabbing touch-pan-y"
         style={{
           backgroundColor: isCameraActive ? `rgba(0, 0, 0, ${1 - opacity})` : 'rgba(15, 23, 42, 0.95)',
-          contain: 'strict',
-          transform: mirrorHorizontal ? 'scaleX(-1)' : 'none'
+          contain: 'strict'
         }}
       >
         {/* Pure GPU Transform Translation Layer */}
@@ -398,15 +422,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
           className={`p-1.5 rounded-xl text-xs transition-colors ${showFocusGuide ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
         >
           <Eye className="w-3.5 h-3.5" />
-        </button>
-
-        {/* Mirror Toggle */}
-        <button
-          onClick={() => setMirrorHorizontal(prev => !prev)}
-          title="היפוך מראה (מתאים לזכוכית טלפרומפטר פיזית)"
-          className={`p-1.5 rounded-xl text-xs transition-colors ${mirrorHorizontal ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
-        >
-          <FlipHorizontal className="w-3.5 h-3.5" />
         </button>
       </div>
 
