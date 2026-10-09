@@ -67,7 +67,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [framingMode, setFramingMode] = useState<'cover' | 'wide'>('cover');
 
   // Lens & Zoom State (1.0x, 1.2x, 1.5x, 2.0x)
-  const [zoomLevel, setZoomLevel] = useState(1.0); // Default to clean 1.0x full 9:16 vertical
+  const [zoomLevel, setZoomLevel] = useState(1.0); // Default 1.0x full 9:16 frame
   const [showZoomBar, setShowZoomBar] = useState(false);
   const [hardwareZoomSupported, setHardwareZoomSupported] = useState(false);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1.0, max: 3.0, step: 0.1 });
@@ -254,7 +254,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   };
 
   const applyZoom = async (newZoom: number) => {
-    const clamped = Math.max(0.5, Math.min(3.0, Number(newZoom.toFixed(1))));
+    const clamped = Math.max(1.0, Math.min(3.0, Number(newZoom.toFixed(1))));
     setZoomLevel(clamped);
     const videoTrack = streamRef.current?.getVideoTracks()[0];
     if (videoTrack && hardwareZoomSupported) {
@@ -766,13 +766,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           
           {studioMode === 'camera' && (
             <>
-              {/* Quick Lens Switcher Pills (0.5x Ultra-Wide, 0.7x Wide, 1.0x Normal, 1.5x Tele) */}
+              {/* Quick Lens Switcher Pills */}
               <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
                 {[
-                  { label: '0.5x', val: 0.5, title: 'עדשה רחבה במיוחד (Ultra-Wide 0.5x)' },
-                  { label: '0.7x', val: 0.7, title: 'זווית רחבה (0.7x)' },
-                  { label: '1.0x', val: 1.0, title: 'רגיל (1.0x)' },
-                  { label: '1.5x', val: 1.5, title: 'תקריב (1.5x)' }
+                  { label: '1.0x', val: 1.0, title: 'רגיל (ברירת מחדל)' },
+                  { label: '1.2x', val: 1.2, title: 'מעט קרוב' },
+                  { label: '1.5x', val: 1.5, title: 'תקריב' },
+                  { label: '2.0x', val: 2.0, title: 'זום 2x' }
                 ].map((lens) => (
                   <button
                     key={lens.label}
@@ -1236,12 +1236,12 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-bold flex items-center gap-1.5 text-xs text-white">
-                  <ZoomIn className="w-3.5 h-3.5 text-indigo-400" /> זום ומרחק: {zoomLevel.toFixed(1)}x
+                  <ZoomIn className="w-3.5 h-3.5 text-indigo-400" /> זום תקריב: {zoomLevel.toFixed(1)}x
                 </span>
                 <input
                   aria-label="זום מצלמה"
                   type="range"
-                  min="0.5"
+                  min="1.0"
                   max="3.0"
                   step="0.1"
                   value={zoomLevel}
@@ -1249,7 +1249,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                   className="w-32 accent-indigo-500 cursor-pointer"
                 />
                 <div className="flex items-center gap-1">
-                  {[0.5, 0.7, 1.0, 1.5, 2.0].map((lvl) => (
+                  {[1.0, 1.2, 1.5, 2.0, 3.0].map((lvl) => (
                     <button
                       key={lvl}
                       onClick={() => applyZoom(lvl)}
