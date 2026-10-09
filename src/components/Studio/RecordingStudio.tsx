@@ -766,13 +766,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           
           {studioMode === 'camera' && (
             <>
-              {/* Quick Lens Switcher Pills */}
+              {/* Quick Lens Switcher Pills (0.5x Ultra-Wide, 0.7x Wide, 1.0x Normal, 1.5x Tele) */}
               <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
                 {[
-                  { label: '1.0x', val: 1.0, title: 'רגיל (ברירת מחדל)' },
-                  { label: '1.2x', val: 1.2, title: 'מעט קרוב' },
-                  { label: '1.5x', val: 1.5, title: 'תקריב' },
-                  { label: '2.0x', val: 2.0, title: 'זום 2x' }
+                  { label: '0.5x', val: 0.5, title: 'עדשה רחבה במיוחד (Ultra-Wide 0.5x)' },
+                  { label: '0.7x', val: 0.7, title: 'זווית רחבה (0.7x)' },
+                  { label: '1.0x', val: 1.0, title: 'רגיל (1.0x)' },
+                  { label: '1.5x', val: 1.5, title: 'תקריב (1.5x)' }
                 ].map((lens) => (
                   <button
                     key={lens.label}
