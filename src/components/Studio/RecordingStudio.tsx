@@ -66,11 +66,11 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [framingMode, setFramingMode] = useState<'cover' | 'wide'>('cover');
 
-  // Lens & Zoom State (0.5x, 0.7x, 1.0x, 1.5x, 2.0x, 3.0x)
-  const [zoomLevel, setZoomLevel] = useState(0.7); // Default to comfortable 0.7x wide desk/handheld FOV
+  // Lens & Zoom State (1.0x, 1.2x, 1.5x, 2.0x)
+  const [zoomLevel, setZoomLevel] = useState(1.0); // Default to clean 1.0x full 9:16 vertical
   const [showZoomBar, setShowZoomBar] = useState(false);
   const [hardwareZoomSupported, setHardwareZoomSupported] = useState(false);
-  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 0.5, max: 3.0, step: 0.1 });
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1.0, max: 3.0, step: 0.1 });
 
   // Voiceover / Faceless B-Roll & Slideshow State
   const [bgSourceType, setBgSourceType] = useState<BackgroundSourceType>('gradient');
@@ -463,34 +463,19 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             ctx.filter = `brightness(${brightness})`;
           }
 
-          if (zoomLevel < 1.0 || framingMode === 'wide') {
-            // Wide-Angle / Low Zoom framing: avoid extreme tight close-up crops!
-            ctx.save();
-            ctx.filter = `blur(24px) brightness(0.4)`;
-            ctx.drawImage(video, 0, 0, vw, vh, -10, -10, outWidth + 20, outHeight + 20);
-            ctx.restore();
-
-            const effectiveScale = zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : 1.0;
-            const fitW = outWidth * effectiveScale;
-            const fitH = fitW / srcAspect;
-            const fitX = (outWidth - fitW) / 2;
-            const fitY = (outHeight - fitH) / 2;
-            ctx.drawImage(video, 0, 0, vw, vh, fitX, fitY, fitW, fitH);
+          // Full-bleed 9:16 Vertical Video Crop & Scaling
+          let sw = vw / zoomLevel;
+          let sh = vh / zoomLevel;
+          if (srcAspect > targetAspect) {
+            sw = (vh * targetAspect) / zoomLevel;
+            sh = vh / zoomLevel;
           } else {
-            // Standard crop with zoom factor
-            let sw = vw / zoomLevel;
-            let sh = vh / zoomLevel;
-            if (srcAspect > targetAspect) {
-              sw = (vh * targetAspect) / zoomLevel;
-              sh = vh / zoomLevel;
-            } else {
-              sh = (vw / targetAspect) / zoomLevel;
-              sw = vw / zoomLevel;
-            }
-            const sx = Math.max(0, (vw - sw) / 2);
-            const sy = Math.max(0, (vh - sh) / 2);
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
+            sh = (vw / targetAspect) / zoomLevel;
+            sw = vw / zoomLevel;
           }
+          const sx = Math.max(0, (vw - sw) / 2);
+          const sy = Math.max(0, (vh - sh) / 2);
+          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
           ctx.restore();
         };
 
@@ -781,13 +766,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           
           {studioMode === 'camera' && (
             <>
-              {/* Quick Lens Switcher Pills (0.5x Ultra-Wide, 0.7x Desk/Selfie, 1.0x Normal) */}
+              {/* Quick Lens Switcher Pills */}
               <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
                 {[
-                  { label: '0.5x', val: 0.5, title: 'עדשה רחבה במיוחד (Ultra-Wide)' },
-                  { label: '0.7x', val: 0.7, title: 'זווית שולחן / סלפי נוחה' },
-                  { label: '1.0x', val: 1.0, title: 'זווית רגילה' },
-                  { label: '1.5x', val: 1.5, title: 'תקריב' }
+                  { label: '1.0x', val: 1.0, title: 'רגיל (ברירת מחדל)' },
+                  { label: '1.2x', val: 1.2, title: 'מעט קרוב' },
+                  { label: '1.5x', val: 1.5, title: 'תקריב' },
+                  { label: '2.0x', val: 2.0, title: 'זום 2x' }
                 ].map((lens) => (
                   <button
                     key={lens.label}
@@ -812,20 +797,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               >
                 <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
                 <span className="hidden sm:inline">{facingMode === 'user' ? 'סלפי' : 'אחורית'}</span>
-              </button>
-
-              {/* Framing Mode Toggle (Cover vs Wide) */}
-              <button
-                onClick={() => setFramingMode(prev => prev === 'cover' ? 'wide' : 'cover')}
-                title={framingMode === 'cover' ? 'מצב חיתוך מסך מלא (רילס)' : 'מצב זווית רחבה מלאה (ללא חיתוך פנים)'}
-                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 shrink-0 active:scale-95 ${
-                  framingMode === 'wide'
-                    ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-              >
-                <Scan className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden sm:inline">{framingMode === 'wide' ? 'זווית רחבה' : 'חיתוך מלא'}</span>
               </button>
             </>
           )}
@@ -1365,44 +1336,23 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         )}
 
         {/* Video Canvas / Stream View */}
-        <div className={`relative flex items-center justify-center overflow-hidden transition-all duration-300 ${
-          aspectRatio === '9:16' ? 'w-full max-w-[420px] aspect-[9/16] rounded-2xl shadow-2xl border border-slate-800' : 'w-full h-full'
+        <div className={`relative flex items-center justify-center overflow-hidden transition-all duration-300 mx-auto ${
+          aspectRatio === '9:16' ? 'h-[94%] max-h-[820px] aspect-[9/16] rounded-2xl shadow-2xl border border-slate-800' : 'w-full h-full'
         }`}>
           
           {/* Active Camera Stream */}
           {studioMode === 'camera' && !recordedUrl && (
-            <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-black">
-              {/* Background ambient fill if in wide mode or low zoom */}
-              {(zoomLevel < 1.0 || framingMode === 'wide') && (
-                <video
-                  ref={(el) => {
-                    if (el && streamRef.current && el.srcObject !== streamRef.current) {
-                      el.srcObject = streamRef.current;
-                      el.play().catch(() => {});
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{
-                    filter: `brightness(${brightness * 0.4}) blur(20px)`,
-                    transform: `scale(${isMirrored ? -1.15 : 1.15}, 1.15)`
-                  }}
-                  className={`absolute inset-0 w-full h-full object-cover pointer-events-none opacity-80 ${!isCameraActive ? 'hidden' : ''}`}
-                />
-              )}
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{
-                  filter: `brightness(${brightness})`,
-                  transform: `scale(${isMirrored ? -(zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel) : (zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel)}, ${zoomLevel < 1.0 ? Math.max(0.65, zoomLevel / 0.75) : zoomLevel})`
-                }}
-                className={`w-full h-full relative z-10 ${framingMode === 'wide' || zoomLevel < 1.0 ? 'object-contain' : 'object-cover'} transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
-              />
-            </div>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                filter: `brightness(${brightness})`,
+                transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`
+              }}
+              className={`w-full h-full object-cover transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
+            />
           )}
 
           {/* Voiceover Mode Background Visual Viewport */}
