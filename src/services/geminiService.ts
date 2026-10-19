@@ -13,16 +13,14 @@ import {
 import { getLegacyScriptDirection, getLegacyBeatSchema } from './legacyArchetypes';
 export { HOOK_ARCHETYPES } from './legacyArchetypes';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
 
-/** Stable, fast Gemini models for new projects, newest first. */
+/** Stable, fast Gemini models for projects, newest first. */
 export const FEATURED_MODELS: ModelInfo[] = [
-  { id: 'gemini-3.8-flash', name: '⚡ Gemini 3.8 Flash — מומלץ', description: 'ה-Flash העדכני והחזק ביותר של Google' },
-  { id: 'gemini-3.7-flash', name: '⚡ Gemini 3.7 Flash', description: 'מודל Flash יציב ומהיר מהדור הקודם' },
-  { id: 'gemini-3.6-flash', name: '⚡ Gemini 3.6 Flash', description: 'מודל Flash יציב ומהיר' },
-  { id: 'gemini-3.5-flash', name: '⚡ Gemini 3.5 Flash', description: 'מודל Flash יציב למשימות תוכן שוטפות' },
-  { id: 'gemini-3.5-flash-lite', name: '💨 Gemini 3.5 Flash-Lite — המהיר והחסכוני', description: 'מתאים לפעולות קצרות ולנפח גבוה' },
-  { id: 'gemini-3.1-flash-lite', name: '💨 Gemini 3.1 Flash-Lite', description: 'מודל Flash-Lite יציב' },
+  { id: 'gemini-2.0-flash', name: '⚡ Gemini 2.0 Flash — מומלץ', description: 'מודל הדגל המהיר, המדויק והמתקדם ביותר לתמלול וידאו ולתוכן' },
+  { id: 'gemini-2.0-flash-lite', name: '💨 Gemini 2.0 Flash-Lite — סופר מהיר וחסכוני', description: 'מותאם לפעולות בזק ונפחי תמלול גבוהים' },
+  { id: 'gemini-1.5-flash', name: '⚡ Gemini 1.5 Flash — יציב ואמין', description: 'מודל Flash מוכח בעל מכסות גבוהות ויציבות מעולה' },
+  { id: 'gemini-1.5-flash-8b', name: '💨 Gemini 1.5 Flash-8B', description: 'מודל קל משקל ומהיר' },
 ];
 
 export interface ModelInfo {
@@ -59,7 +57,7 @@ export const setStoredApiKey = (key: string): void => {
 
 export const getStoredModel = (): string => {
   const stored = (localStorage.getItem('heart_compass_gemini_model') || '').trim();
-  if (!stored || /^gemini-(1\.5|2\.0|2\.5)(?:-|$)/.test(stored)) {
+  if (!stored || /^gemini-3\./i.test(stored)) {
     localStorage.setItem('heart_compass_gemini_model', DEFAULT_GEMINI_MODEL);
     return DEFAULT_GEMINI_MODEL;
   }
@@ -127,6 +125,8 @@ export const testGeminiApiKey = async (rawKey: string, preferredModel?: string):
   const candidateModels = Array.from(new Set([
     ...(cleanPreferred && discoveredIds.includes(cleanPreferred) ? [cleanPreferred] : []),
     ...discoveredIds,
+    DEFAULT_GEMINI_MODEL,
+    'gemini-1.5-flash',
   ]));
 
   let lastDiagnostic = '';
@@ -214,7 +214,7 @@ export const getAvailableModelsForApiKey = async (
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
   if (!cleanKey) return FEATURED_MODELS;
 
-  const cacheKey = `heart_compass_flash_models_v3_${cleanKey.slice(-6)}`;
+  const cacheKey = `heart_compass_flash_models_v4_${cleanKey.slice(-6)}`;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached && !forceRefresh) {
     try {
@@ -236,8 +236,7 @@ export const getAvailableModelsForApiKey = async (
           return (
             m.supportedGenerationMethods?.includes('generateContent') &&
             /flash/i.test(id) &&
-            !/^gemini-(1\.5|2\.0|2\.5)(?:-|$)/i.test(id) &&
-            !/(image|tts|live|audio|preview|exp)/i.test(id)
+            !/(image|tts|live|audio-preview)/i.test(id)
           );
         })
         .map((m: any) => {
@@ -253,8 +252,9 @@ export const getAvailableModelsForApiKey = async (
           const order = FEATURED_MODELS.map((item) => item.id);
           const ai = order.indexOf(a.id);
           const bi = order.indexOf(b.id);
-          if (ai !== -1 || bi !== -1)
-            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          if (ai !== -1 && bi !== -1) return ai - bi;
+          if (ai !== -1) return -1;
+          if (bi !== -1) return 1;
           return b.id.localeCompare(a.id, undefined, { numeric: true });
         });
 
@@ -267,7 +267,6 @@ export const getAvailableModelsForApiKey = async (
     console.warn('Failed to fetch dynamic models from API:', err);
   }
 
-  // Network/model-list failures should not revive retired 1.x/2.x IDs.
   return FEATURED_MODELS;
 };
 
@@ -528,6 +527,8 @@ const callGemini = async (prompt: string, jsonMode = false, systemInstruction = 
   const modelIdsToTry = Array.from(new Set([
     ...(availableIds.includes(preferredModel) ? [preferredModel] : []),
     ...availableIds,
+    DEFAULT_GEMINI_MODEL,
+    'gemini-1.5-flash',
   ]));
 
   let lastErrorMsg = '';
@@ -967,20 +968,115 @@ export const cleanSpokenReferenceScript = (raw: string): string => {
   return spokenLines.join('\n');
 };
 
+/**
+ * Downmixes and encodes an AudioBuffer to a compact 16kHz 16-bit mono WAV Blob.
+ * 1 minute of 16kHz mono audio is only ~1.9 MB, vastly smaller than a video blob,
+ * preventing payload size limits (413/400) and dramatically accelerating AI transcription.
+ */
+function audioBufferToWav(buffer: AudioBuffer, targetSampleRate = 16000): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const originalLength = buffer.length;
+  const originalSampleRate = buffer.sampleRate;
+
+  const ratio = originalSampleRate / targetSampleRate;
+  const newLength = Math.max(1, Math.round(originalLength / ratio));
+  const result = new Float32Array(newLength);
+
+  for (let i = 0; i < newLength; i++) {
+    const origIndex = Math.min(Math.round(i * ratio), originalLength - 1);
+    let sum = 0;
+    for (let ch = 0; ch < numChannels; ch++) {
+      sum += buffer.getChannelData(ch)[origIndex];
+    }
+    result[i] = sum / numChannels;
+  }
+
+  const wavBuffer = new ArrayBuffer(44 + newLength * 2);
+  const view = new DataView(wavBuffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + newLength * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // 1 channel (mono)
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, targetSampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); // 16 bits
+  writeString(36, 'data');
+  view.setUint32(40, newLength * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < newLength; i++) {
+    const s = Math.max(-1, Math.min(1, result[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Blob([wavBuffer], { type: 'audio/wav' });
+}
+
+const blobToBase64 = (b: Blob): Promise<string> => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      resolve(result ? result.split(',')[1] || '' : '');
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(b);
+  });
+};
+
+const prepareMediaForTranscription = async (blob: Blob): Promise<{ base64: string; mimeType: string }> => {
+  // If the blob is large or video, try extracting clean mono WAV audio
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtx) {
+      const audioCtx = new AudioCtx();
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        const wavBlob = audioBufferToWav(audioBuffer, 16000);
+        if (wavBlob && wavBlob.size > 0) {
+          const base64 = await blobToBase64(wavBlob);
+          if (base64) {
+            return { base64, mimeType: 'audio/wav' };
+          }
+        }
+      } finally {
+        if (audioCtx.state !== 'closed') {
+          audioCtx.close().catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Audio extraction to WAV failed, falling back to full media blob:', err);
+  }
+
+  // Fallback to original blob
+  const base64 = await blobToBase64(blob);
+  const rawMime = (blob.type || 'video/webm').split(';')[0].trim().toLowerCase();
+  return { base64, mimeType: rawMime || 'video/webm' };
+};
+
 export const generateCaptionsFromVideoBlob = async (
   blob: Blob,
   referenceScript?: string,
   durationSeconds?: number
 ): Promise<CaptionItem[]> => {
   const apiKey = getStoredApiKey();
-  if (!apiKey) throw new Error('נדרש מפתח API של Gemini');
+  if (!apiKey) throw new Error('נדרש מפתח API של Gemini. אנא הגדר מפתח בהגדרות המערכת.');
 
-  const base64 = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  const { base64, mimeType } = await prepareMediaForTranscription(blob);
 
   const cleanReference = cleanSpokenReferenceScript(referenceScript || '').trim();
 
@@ -1038,13 +1134,17 @@ ${cleanReference}
   const modelsToTry = Array.from(new Set([
     ...(availableIds.includes(preferred) ? [preferred] : []),
     ...availableIds,
+    DEFAULT_GEMINI_MODEL,
+    'gemini-1.5-flash',
   ]));
+
+  let lastDiagnostic = '';
 
   for (const model of modelsToTry) {
     const cleanModelId = model.replace(/^models\//, '');
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      const response = await fetchGoogle(
+        `/v1beta/models/${encodeURIComponent(cleanModelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1054,7 +1154,7 @@ ${cleanReference}
                 role: 'user',
                 parts: [
                   { text: prompt },
-                  { inlineData: { mimeType: blob.type || "video/webm", data: base64 } }
+                  { inlineData: { mimeType, data: base64 } }
                 ]
               }
             ],
@@ -1067,7 +1167,11 @@ ${cleanReference}
       );
 
       const data = await response.json();
-      if (data.error) continue;
+      if (data.error) {
+        lastDiagnostic = data.error.message || `שגיאת API (${data.error.code || response.status})`;
+        console.warn(`Caption transcription failed on ${cleanModelId}:`, data.error);
+        continue;
+      }
 
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
@@ -1085,12 +1189,17 @@ ${cleanReference}
           }
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      lastDiagnostic = e.message || '';
       continue;
     }
   }
 
-  throw new Error('שגיאה ביצירת כתוביות אוטומטיות בעברית.');
+  throw new Error(
+    lastDiagnostic
+      ? `שגיאה ביצירת כתוביות בעזרת AI: ${lastDiagnostic}`
+      : 'שגיאה ביצירת כתוביות אוטומטיות בעברית. אנא ודא שמפתח ה-Gemini תקין בהגדרות.'
+  );
 };
 
 /**
@@ -1128,13 +1237,17 @@ ${JSON.stringify(captions.map((c, i) => ({ id: c.id, start: c.start, end: c.end,
   const modelsToTry = Array.from(new Set([
     ...(availableIds.includes(preferred) ? [preferred] : []),
     ...availableIds,
+    DEFAULT_GEMINI_MODEL,
+    'gemini-1.5-flash',
   ]));
+
+  let lastDiagnostic = '';
 
   for (const model of modelsToTry) {
     const cleanModelId = model.replace(/^models\//, '');
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      const response = await fetchGoogle(
+        `/v1beta/models/${encodeURIComponent(cleanModelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1149,7 +1262,10 @@ ${JSON.stringify(captions.map((c, i) => ({ id: c.id, start: c.start, end: c.end,
       );
 
       const data = await response.json();
-      if (data.error) continue;
+      if (data.error) {
+        lastDiagnostic = data.error.message || `שגיאת API (${data.error.code || response.status})`;
+        continue;
+      }
 
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
@@ -1170,12 +1286,13 @@ ${JSON.stringify(captions.map((c, i) => ({ id: c.id, start: c.start, end: c.end,
           return corrected;
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      lastDiagnostic = e.message || '';
       continue;
     }
   }
 
-  throw new Error('הגהת הכתיב לא הושלמה. התמלול הקיים נשמר; אפשר לנסות שוב או לערוך ידנית.');
+  throw new Error(lastDiagnostic ? `הגהת הכתיב נכשלה: ${lastDiagnostic}` : 'הגהת הכתיב לא הושלמה. התמלול הקיים נשמר; אפשר לנסות שוב או לערוך ידנית.');
 };
 
 export const fetchAndDeconstructArticle = async (

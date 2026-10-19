@@ -188,7 +188,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   ))}
                 </select>
                 <p className="mt-1.5 text-[10px] text-slate-500">
-                  הרשימה נטענת ישירות מ-Google. דגמי 1.5, 2.0 ו-2.5 אינם מוצגים למפתחות חדשים.
+                  הרשימה נטענת ישירות מ-Google AI Studio. מודל ברירת המחדל המומלץ לתמלול ותוכן הוא Gemini 2.0 Flash.
                 </p>
               </div>
 
