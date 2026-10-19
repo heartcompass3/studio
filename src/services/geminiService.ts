@@ -913,36 +913,13 @@ export function sanitizeAndSequenceCaptions(
     });
   }
 
-  // Step 4: Intelligent Timeline Drift & Pacing Anchor
-  // Multimodal AI often rushes/compresses speech towards the second half of videos.
-  // If the video duration is known and captions end way too early or exceed duration,
-  // pace them smoothly so the ending matches the actual video ending.
-  if (Number.isFinite(limit) && limit > 8 && sequenced.length >= 3) {
-    const first = sequenced[0];
+  // Ensure captions ending does not exceed video duration limit if known
+  if (Number.isFinite(limit) && limit > 0 && sequenced.length > 0) {
     const last = sequenced[sequenced.length - 1];
-    const expectedEnd = Math.max(limit - 1.5, limit * 0.94);
-
-    if (last.end < limit * 0.83) {
-      // AI rushed towards the end: expand span smoothly so captions match the full spoken video
-      const currentSpan = last.end - first.start;
-      const targetSpan = expectedEnd - first.start;
-      if (currentSpan > 0 && targetSpan > currentSpan) {
-        const expandRatio = targetSpan / currentSpan;
-        for (const c of sequenced) {
-          c.start = Number((first.start + (c.start - first.start) * expandRatio).toFixed(2));
-          c.end = Number((first.start + (c.end - first.start) * expandRatio).toFixed(2));
-        }
-      }
-    } else if (last.end > limit) {
-      // Captions exceeded video duration: compress safely to fit within duration
-      const currentSpan = last.end - first.start;
-      const targetSpan = limit - 0.2 - first.start;
-      if (currentSpan > 0 && targetSpan > 0) {
-        const compressRatio = targetSpan / currentSpan;
-        for (const c of sequenced) {
-          c.start = Number((first.start + (c.start - first.start) * compressRatio).toFixed(2));
-          c.end = Number((first.start + (c.end - first.start) * compressRatio).toFixed(2));
-        }
+    if (last.end > limit) {
+      last.end = limit;
+      if (last.start >= limit - 0.1) {
+        last.start = Math.max(0, limit - 0.3);
       }
     }
   }
@@ -1082,11 +1059,11 @@ export const generateCaptionsFromVideoBlob = async (
 
   const durationNotice = durationSeconds && durationSeconds > 0
     ? `
-🚨 משך הסרטון המדויק וחלוקת זמנים מאוזנת:
-- משך הסרטון הכולל: ${durationSeconds.toFixed(1)} שניות.
-- המשפטים בסרטון נאמרים לאורך כל הסרטון עד סופו (סביב ${(durationSeconds * 0.9).toFixed(1)} עד ${durationSeconds.toFixed(1)} שניות).
-- איסור מוחלט על דחיסת כתוביות או הקדמת כתוביות לקראת סוף הסרטון! אל תמהר ואל תסיים את הכתוביות מוקדם מדי.
-- קצב הדיבור הממוצע הוא כ-2.5 עד 3.0 מילים בשנייה (משפט של 5-6 מילים נמשך כ-2 שניות).`
+🚨 מידע על משך השמע ותזמון פונטי מדויק:
+- משך קובץ האודיו: ${durationSeconds.toFixed(1)} שניות.
+- תזמן כל משפט ומקטע בדיוק לפי הרגע שבו המילים נשמעות בפועל באודיו (Acoustic Timestamps).
+- אל תנחש, אל תמתח ואל תעכב כתוביות באופן מלאכותי לקראת הסוף.
+- אם הדובר סיים לדבר לפני סוף הסרטון (ויש שקט או מוזיקה), הכתובית האחרונה תסתיים בדיוק כשהמילה האחרונה נאמרת.`
     : '';
 
   const prompt = `משימה: תמלול אודיו בעברית בדיוק פונטי ולשוני מקסימלי עבור כתוביות לסרטון וידאו (Reels/Shorts/TikTok).

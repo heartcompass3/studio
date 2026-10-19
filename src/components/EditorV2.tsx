@@ -362,12 +362,9 @@ export function EditorV2({
     const current = state.current.doc;
     const offset = current.captionOffset || 0;
     const captions = updateCaptionTiming(current.captions, id, field, visibleTime - offset, {
-      ripple: current.captionRipple !== false, duration: current.duration, offset,
+      ripple: current.captionRipple !== false, duration: current.duration, offset, bidirectionalRipple: true,
     });
     if (captions !== current.captions) commit({ ...current, captions });
-    const actual = captions.find(item => item.id === id)?.[field];
-    if (actual !== undefined && Math.abs(actual + offset - visibleTime) > 0.002)
-      setStatus('הזמן הוגבל כדי לשמור על גבולות הסרטון ועל רצף הכתוביות. אפשר לכבות סנכרון שרשרת לעריכה מקומית.');
   };
   const pinCaption = (id: number, field: 'start' | 'end') => {
     const current = state.current;
@@ -377,6 +374,13 @@ export function EditorV2({
     setPlaying(false);
     setTime(at);
     editCaptionTime(id, field, at);
+    setStatus(
+      field === 'start'
+        ? (current.doc.captionRipple !== false
+          ? `הכתובית סונכרנה ל-${at.toFixed(2)}s (סנכרון קדימה ואחורה)`
+          : `תחילת הכתובית נקבעה ל-${at.toFixed(2)}s`)
+        : `סיום הכתובית נקבע ל-${at.toFixed(2)}s`
+    );
   };
   const update = (changes: Partial<Layer>) => {
     if (!chosen) return;
@@ -1719,8 +1723,8 @@ export function EditorV2({
                 <button
                   type="button"
                   className="sv-icon"
-                  title="קבע התחלה בזמן הנגן ושמור את משך הכתובית"
-                  aria-label="סנכרן את תחילת הכתובית לזמן הנוכחי"
+                  title="התחל כאן - סנכרן תחילת כתובית לזמן הנגן (מזיז את כל הכתוביות קדימה ואחורה)"
+                  aria-label="התחל כאן - סנכרן תחילת כתובית לזמן הנוכחי"
                   onClick={() => pinCaption(cap.id, 'start')}
                 >⏱</button>
                 <button type="button" className="sv-icon" title="קבע סיום בזמן הנגן"
