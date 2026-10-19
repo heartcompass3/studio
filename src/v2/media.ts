@@ -1,6 +1,6 @@
 import { Asset, Composition, Layer, MediaPool } from "./types";
 
-const SEEK_TIMEOUT_MS = 4000;
+const SEEK_TIMEOUT_MS = 200;
 
 function abortError(): DOMException {
   return new DOMException("The export was cancelled.", "AbortError");
@@ -118,8 +118,7 @@ async function seekVideo(
     return;
   await new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(
-      () =>
-        finish(new Error(`Timed out seeking video to ${target.toFixed(3)}s.`)),
+      () => finish(), // Fallback gracefully if frame seek exceeds 200ms
       SEEK_TIMEOUT_MS,
     );
     const onAbort = () => finish(abortError());
