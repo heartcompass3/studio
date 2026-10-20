@@ -261,7 +261,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   };
 
   const handleTimeUpdate = () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || isExporting) return;
     const time = videoRef.current.currentTime;
     setCurrentTime(time);
     syncMusicPreview();
@@ -410,12 +410,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   };
 
   const applyCaptionStartUpdate = (id: number, value: number, overrideRipple?: boolean) => {
+    const liveDur = (videoRef.current?.duration && isFinite(videoRef.current.duration) && videoRef.current.duration > 0) ? videoRef.current.duration : duration;
     setCaptions(previous => updateCaptionTiming(previous, id, 'start', value, {
-      ripple: overrideRipple ?? rippleSync, duration, bidirectionalRipple: true,
+      ripple: overrideRipple ?? rippleSync, duration: liveDur, bidirectionalRipple: true,
     }));
   };
   const applyCaptionEndUpdate = (id: number, value: number) => {
-    setCaptions(previous => updateCaptionTiming(previous, id, 'end', value, { ripple: rippleSync, duration }));
+    const liveDur = (videoRef.current?.duration && isFinite(videoRef.current.duration) && videoRef.current.duration > 0) ? videoRef.current.duration : duration;
+    setCaptions(previous => updateCaptionTiming(previous, id, 'end', value, { ripple: rippleSync, duration: liveDur }));
   };
   const nudgeCaptionStart = (id: number, delta: number) => {
     setCaptions(previous => {
@@ -538,6 +540,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     try {
       const mp4Blob = await exportVideoToMP4({
         videoElement: videoRef.current,
+        videoBlob: activeVideoBlob,
         captions,
         visualOverlays,
         trimStart,
@@ -558,12 +561,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         }
       });
 
-      // Download
+      // Download with verified MIME extension (true MP4 vs WebM)
+      const isWebm = mp4Blob.type.includes('webm');
+      const ext = isWebm ? 'webm' : 'mp4';
       const formatTag = exportAspectRatio === '9:16' ? 'reels_9x16' : 'youtube_16x9';
       const url = URL.createObjectURL(mp4Blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `heart_compass_${formatTag}_${Date.now()}.mp4`;
+      a.download = `heart_compass_${formatTag}_${Date.now()}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -764,11 +769,13 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                   onLoadedMetadata={handleLoadedMetadata}
                   onTimeUpdate={handleTimeUpdate}
                   onPlay={() => {
+                    if (isExporting) return;
                     setIsPlaying(true);
                     syncMusicPreview(true);
                     musicRef.current?.play().catch(() => undefined);
                   }}
                   onPause={() => {
+                    if (isExporting) return;
                     setIsPlaying(false);
                     musicRef.current?.pause();
                   }}
