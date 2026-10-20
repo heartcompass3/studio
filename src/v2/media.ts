@@ -1,6 +1,6 @@
 import { Asset, Composition, Layer, MediaPool } from "./types";
 
-const SEEK_TIMEOUT_MS = 200;
+const SEEK_TIMEOUT_MS = 60;
 
 function abortError(): DOMException {
   return new DOMException("The export was cancelled.", "AbortError");
@@ -112,7 +112,7 @@ async function seekVideo(
 ): Promise<void> {
   if (signal?.aborted) throw abortError();
   if (
-    Math.abs(video.currentTime - target) <= 1 / 120 &&
+    Math.abs(video.currentTime - target) <= 0.04 &&
     video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
   )
     return;

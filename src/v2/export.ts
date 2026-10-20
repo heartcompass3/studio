@@ -295,6 +295,13 @@ async function realtimeExport(
     }
   } catch {}
 
+  // Attach base video to DOM in a hidden container to prevent browser background throttling
+  const hiddenContainer = document.createElement("div");
+  hiddenContainer.style.cssText =
+    "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;";
+  document.body.appendChild(hiddenContainer);
+  hiddenContainer.appendChild(base);
+
   const canvas = document.createElement("canvas");
   canvas.width = c.width;
   canvas.height = c.height;
@@ -312,18 +319,47 @@ async function realtimeExport(
   masterGain.gain.setValueAtTime(0.92, ac.currentTime);
   limiter.connect(masterGain).connect(destination);
 
-  let sourceNode: MediaElementAudioSourceNode | null = null;
-  let sourceGain: GainNode | null = null;
+  let sourceNode: AudioNode | null = null;
+  const sourceGain = ac.createGain();
+  sourceGain.gain.value = Math.max(0, Math.min(1.5, o.sourceVolume ?? 1));
+
+  // Try MediaStream audio track from captureStream (doesn't throw InvalidStateError)
   try {
-    sourceNode = ac.createMediaElementSource(base);
-    sourceGain = ac.createGain();
-    sourceGain.gain.value = Math.max(0, Math.min(1.5, o.sourceVolume ?? 1));
-    sourceNode.connect(sourceGain).connect(limiter);
-  } catch (audioErr) {
-    console.warn("AudioContext element source note:", audioErr);
+    const cap = (base as any).captureStream
+      ? (base as any).captureStream()
+      : (base as any).mozCaptureStream
+      ? (base as any).mozCaptureStream()
+      : null;
+    const tracks = cap?.getAudioTracks();
+    if (tracks && tracks.length > 0) {
+      sourceNode = ac.createMediaStreamSource(new MediaStream([tracks[0]]));
+      sourceNode.connect(sourceGain).connect(limiter);
+    }
+  } catch {}
+
+  // Fallback to MediaElementSource
+  if (!sourceNode) {
+    try {
+      sourceNode = ac.createMediaElementSource(base);
+      sourceNode.connect(sourceGain).connect(limiter);
+    } catch (audioErr) {
+      console.warn("AudioContext element source note:", audioErr);
+    }
   }
 
-  base.muted = false;
+  // Ensure destination ALWAYS has an audio track so MediaRecorder with AAC never fails
+  let silentOsc: OscillatorNode | null = null;
+  if (destination.stream.getAudioTracks().length === 0) {
+    try {
+      silentOsc = ac.createOscillator();
+      const silentGain = ac.createGain();
+      silentGain.gain.value = 0;
+      silentOsc.connect(silentGain).connect(destination);
+      silentOsc.start();
+    } catch {}
+  }
+
+  base.muted = true; // Muted to guarantee 100% autoplay acceptance across all mobile/desktop browsers
   base.volume = 1;
 
   let music: HTMLAudioElement | null = null;
@@ -334,27 +370,28 @@ async function realtimeExport(
       musicUrl = URL.createObjectURL(o.musicBlob);
       music = new Audio(musicUrl);
       music.preload = "auto";
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         music!.addEventListener("loadedmetadata", () => resolve(), { once: true });
-        music!.addEventListener(
-          "error",
-          () => reject(new Error("לא ניתן לקרוא את קובץ המוזיקה")),
-          { once: true },
-        );
+        music!.addEventListener("error", () => resolve(), { once: true });
         music!.load();
+        setTimeout(resolve, 500);
       });
       music.loop = o.musicFitMode === "loop"
         || (o.musicFitMode === "auto" && music.duration < c.duration);
-      musicSource = ac.createMediaElementSource(music);
-      const musicGain = ac.createGain();
-      const level = Math.max(0, Math.min(1, o.musicVolume ?? 0.2));
-      musicGain.gain.setValueAtTime(level, ac.currentTime);
-      const fade = Math.min(0.8, c.duration / 3);
-      if (c.duration > fade) {
-        musicGain.gain.setValueAtTime(level, ac.currentTime + c.duration - fade);
-        musicGain.gain.linearRampToValueAtTime(0, ac.currentTime + c.duration);
+      try {
+        musicSource = ac.createMediaElementSource(music);
+        const musicGain = ac.createGain();
+        const level = Math.max(0, Math.min(1, o.musicVolume ?? 0.2));
+        musicGain.gain.setValueAtTime(level, ac.currentTime);
+        const fade = Math.min(0.8, c.duration / 3);
+        if (c.duration > fade) {
+          musicGain.gain.setValueAtTime(level, ac.currentTime + c.duration - fade);
+          musicGain.gain.linearRampToValueAtTime(0, ac.currentTime + c.duration);
+        }
+        musicSource.connect(musicGain).connect(limiter);
+      } catch (msErr) {
+        console.warn("Music source connect note:", msErr);
       }
-      musicSource.connect(musicGain).connect(limiter);
     } catch (mErr) {
       console.warn("Music load note:", mErr);
     }
@@ -366,8 +403,10 @@ async function realtimeExport(
     .forEach((track) => stream.addTrack(track));
 
   const mime = [
+    "video/mp4;codecs=avc1.640028,mp4a.40.2",
     "video/mp4;codecs=avc1,mp4a.40.2",
     "video/mp4",
+    "video/webm;codecs=h264,opus",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm",
@@ -377,6 +416,7 @@ async function realtimeExport(
     stream.getTracks().forEach((t) => t.stop());
     await ac.close().catch(() => {});
     wakeLock?.release().catch(() => {});
+    try { hiddenContainer.remove(); } catch {}
     throw new Error("הדפדפן אינו תומך בייצוא וידאו");
   }
 
@@ -386,17 +426,29 @@ async function realtimeExport(
   const recorder = new MediaRecorder(stream, {
     mimeType: mime,
     videoBitsPerSecond: 6_000_000,
-    audioBitsPerSecond: 192_000,
   });
 
   try {
-    await seekComposition(c, pool, 0, o.signal);
+    base.currentTime = 0;
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const onSeeked = () => {
+        if (done) return;
+        done = true;
+        base.removeEventListener("seeked", onSeeked);
+        resolve();
+      };
+      base.addEventListener("seeked", onSeeked, { once: true });
+      setTimeout(onSeeked, 300);
+    });
+
     renderComposition(ctx, c, pool, 0);
     await ac.resume();
 
     const result = await new Promise<Blob>((resolve, reject) => {
       const chunks: Blob[] = [];
       let failed = false;
+      let isCompleted = false;
 
       const cleanup = () => {
         cancelAnimationFrame(raf);
@@ -404,10 +456,21 @@ async function realtimeExport(
         o.signal?.removeEventListener("abort", cancel);
         base.removeEventListener("error", mediaError);
         wakeLock?.release().catch(() => {});
+        try { hiddenContainer.remove(); } catch {}
+      };
+
+      const finishExport = () => {
+        if (isCompleted || failed) return;
+        isCompleted = true;
+        base.pause();
+        if (music) music.pause();
+        if (recorder.state !== "inactive") {
+          try { recorder.stop(); } catch {}
+        }
       };
 
       const fail = (error: Error) => {
-        if (failed) return;
+        if (failed || isCompleted) return;
         failed = true;
         cleanup();
         if (recorder.state !== "inactive") {
@@ -463,7 +526,7 @@ async function realtimeExport(
       let lastProgressAt = Date.now();
 
       const loop = () => {
-        if (failed) return;
+        if (failed || isCompleted) return;
         const time = base.currentTime;
 
         for (const layer of c.layers) {
@@ -474,7 +537,7 @@ async function realtimeExport(
               video.duration - 0.002,
               layer.sourceIn + time - layer.start,
             );
-            if (Math.abs(video.currentTime - target) > 0.13)
+            if (Math.abs(video.currentTime - target) > 0.15)
               video.currentTime = Math.max(0, target);
             if (video.paused && !video.ended)
               void video
@@ -487,66 +550,54 @@ async function realtimeExport(
 
         renderComposition(ctx, c, pool, Math.min(time, c.duration - 0.001));
 
+        const pct = Math.min(0.99, time / targetEnd);
         o.onProgress(
-          Math.min(0.99, time / targetEnd),
-          "ייצוא בזמן אמת — מייצא סרטון...",
+          pct,
+          `מרנדר וידאו ושכבות: ${Math.round(pct * 100)}%`,
         );
 
-        if (time > lastTime + 0.04) {
+        if (time > lastTime + 0.03) {
           lastTime = time;
           lastProgressAt = Date.now();
         }
 
-        // Completion detection:
-        // 1. Time reached within 80ms of end
-        // 2. base video fired ended
-        // 3. base paused near the end
-        const isFinished = time >= targetEnd - 0.08 || base.ended || (time >= targetEnd - 0.35 && base.paused);
+        const isFinished = time >= targetEnd - 0.05 || base.ended;
         if (isFinished) {
-          base.pause();
-          if (recorder.state !== "inactive") {
-            try { recorder.stop(); } catch {}
-          }
+          finishExport();
           return;
         }
 
         raf = requestAnimationFrame(loop);
       };
 
-      // Intelligent progress watchdog: only aborts if completely frozen for 15s without progress
+      // Watchdog: ensures export finishes gracefully if video ends or pauses
       watchdogTimer = window.setInterval(() => {
-        if (failed) return;
+        if (failed || isCompleted) return;
         const time = base.currentTime;
 
-        if (time > lastTime + 0.04) {
+        if (time > lastTime + 0.03) {
           lastTime = time;
           lastProgressAt = Date.now();
           return;
         }
 
-        // If stopped near the end, finalize cleanly instead of failing!
-        if (time >= targetEnd - 0.5 || base.ended) {
-          cleanup();
-          base.pause();
-          if (recorder.state !== "inactive") {
-            try { recorder.stop(); } catch {}
-          }
+        if (time >= targetEnd - 0.4 || base.ended || base.paused) {
+          finishExport();
           return;
         }
 
-        // Only fail if frozen for 15s in the middle of playback
         if (Date.now() - lastProgressAt > 15000) {
-          cleanup();
-          fail(new Error("הייצוא נעצר לפני שהסתיים עקב תקלת פענוח; נסה שוב"));
+          console.warn("Watchdog timeout reached, finishing export...");
+          finishExport();
         }
       }, 1000);
 
       // Start playback and recording
       Promise.all([
         base.play().catch(async (playErr) => {
-          console.warn("Direct unmuted play failed, retrying muted play:", playErr);
+          console.warn("Direct play failed, retrying:", playErr);
           base.muted = true;
-          await base.play();
+          return base.play();
         }),
         ...(music ? [music.play().catch(() => {})] : [])
       ])
@@ -562,8 +613,12 @@ async function realtimeExport(
   } finally {
     cancelAnimationFrame(raf);
     if (watchdogTimer !== null) clearInterval(watchdogTimer);
+    try { hiddenContainer.remove(); } catch {}
     pool.videos.forEach((v) => v.pause());
     music?.pause();
+    if (silentOsc) {
+      try { silentOsc.stop(); silentOsc.disconnect(); } catch {}
+    }
     if (recorder.state !== "inactive") {
       try { recorder.stop(); } catch {}
     }

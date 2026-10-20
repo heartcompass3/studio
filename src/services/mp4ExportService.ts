@@ -652,7 +652,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     const frameTime = trimStart + (i / fps);
 
     // Seek video element to exact frame timestamp with GPU presentation guarantee
-    if (Math.abs(videoElement.currentTime - frameTime) > 0.001) {
+    if (Math.abs(videoElement.currentTime - frameTime) > 0.04) {
       videoElement.currentTime = frameTime;
       await new Promise<void>((resolve) => {
         let isDone = false;
@@ -676,7 +676,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
             videoElement.removeEventListener('seeked', onSeeked);
             resolve();
           }
-        }, 120);
+        }, 50);
       });
     }
 
@@ -1156,7 +1156,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
  * for 100% click-free, pop-free, crystal clear MP4 export. Falls back to smooth MediaRecorder if needed.
  */
 export const exportVideoToMP4 = async (options: RenderOptions): Promise<Blob> => {
-  const isWebCodecsSupported = typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
+  const isWebCodecsSupported = false; // Prioritize fast, smooth real-time MediaRecorder export (30s-60s)
   if (isWebCodecsSupported) {
     try {
       return await exportVideoWithWebCodecs(options);
