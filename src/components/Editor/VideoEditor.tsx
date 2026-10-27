@@ -623,6 +623,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   // Active caption at current video playhead
   const activeCaption = captions.find(c => captionIsActive(c, currentTime));
+  // Display caption: active playback caption, or preview first caption when paused at 0
+  const displayCaption = activeCaption || (!isPlaying && currentTime <= (captions[0]?.start ?? 0) && captions.length > 0 ? captions[0] : null);
+
+  const isPortrait = exportAspectRatio === '9:16' || 
+    (exportAspectRatio === 'original' && (!videoDimensions || videoDimensions.height >= videoDimensions.width));
+
+  const frameAspectRatio = exportAspectRatio === '9:16' 
+    ? '9 / 16' 
+    : exportAspectRatio === '16:9' 
+      ? '16 / 9' 
+      : (videoDimensions ? `${videoDimensions.width} / ${videoDimensions.height}` : '9 / 16');
 
   if (!activeVideoUrl) {
     return (
@@ -783,7 +794,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         <div className="lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-0 lg:h-full lg:overflow-hidden">
           
           {/* Video Container */}
-          <div className="flex-1 min-h-[220px] max-h-[38vh] lg:max-h-none lg:min-h-0 relative flex items-center justify-center p-2 sm:p-4 overflow-hidden group bg-slate-950/80 cursor-pointer"
+          <div className="w-full h-[54vh] min-h-[350px] max-h-[580px] lg:h-full lg:max-h-none flex-1 relative flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 group cursor-pointer"
             onClick={(e) => {
               if ((e.target as HTMLElement).tagName !== 'VIDEO') return;
               togglePlay();
@@ -793,7 +804,11 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <div 
               className="relative max-h-full max-w-full flex items-center justify-center rounded-2xl overflow-hidden shadow-2xl bg-black border border-slate-800/80 transition-all duration-300"
               style={{
-                aspectRatio: exportAspectRatio === '9:16' ? '9 / 16' : exportAspectRatio === '16:9' ? '16 / 9' : 'auto'
+                aspectRatio: frameAspectRatio,
+                height: isPortrait ? '100%' : 'auto',
+                width: isPortrait ? 'auto' : '100%',
+                maxHeight: '100%',
+                maxWidth: '100%'
               }}
             >
               {activeVideoUrl ? (
@@ -906,7 +921,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                 </div>
               )}
 
-              {activeCaption && !isExporting && <CaptionPreview caption={activeCaption} time={currentTime} style={subtitleStyle} karaoke={karaokeEnabled} />}
+              {displayCaption && !isExporting && <CaptionPreview caption={displayCaption} time={currentTime} style={subtitleStyle} karaoke={karaokeEnabled} />}
 
             </div>
 
@@ -1378,7 +1393,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                 return (
                   <div
                     key={cap.id}
-                    className={`p-3.5 rounded-xl border transition-all duration-150 ${
+                    onClick={() => {
+                      if (!videoRef.current) return;
+                      videoRef.current.currentTime = cap.start;
+                      setCurrentTime(cap.start);
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all duration-150 cursor-pointer ${
                       isCurrentActive
                         ? 'bg-indigo-950/50 border-indigo-500/70 shadow-lg'
                         : 'bg-slate-800/50 border-slate-750 hover:border-slate-600'
@@ -1661,7 +1681,55 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         </div>
       )}
+      {/* Mobile Floating Action Dock */}
+      <div className="fixed bottom-3 inset-x-3 z-40 lg:hidden bg-slate-900/95 backdrop-blur-lg border border-slate-700/80 shadow-2xl rounded-2xl p-2 flex items-center justify-between gap-1.5 text-xs">
+        <button
+          onClick={togglePlay}
+          className="flex-1 py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-1.5 shadow cursor-pointer transition-colors"
+          title={isPlaying ? 'השהה' : 'נגן'}
+        >
+          {isPlaying ? <Pause className="w-4 h-4 text-amber-400 fill-current" /> : <Play className="w-4 h-4 text-indigo-400 fill-current" />}
+          <span className="text-[11px]">{isPlaying ? 'השהה' : 'נגן'}</span>
+        </button>
 
+        <button
+          onClick={handleAutoCaptions}
+          disabled={isGeneratingCaptions || !activeVideoUrl}
+          className="flex-1 py-2 px-2 rounded-xl bg-gradient-to-r from-amber-500 to-indigo-600 text-white font-bold flex items-center justify-center gap-1 shadow disabled:opacity-50 cursor-pointer"
+          title="תמלול כתוביות אוטומטי"
+        >
+          {isGeneratingCaptions ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-200" />}
+          <span className="text-[11px]">תמלל</span>
+        </button>
+
+        <button
+          onClick={() => scrollToSection('section-music')}
+          className="flex-1 py-2 px-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-fuchsia-300 font-bold flex items-center justify-center gap-1 border border-fuchsia-500/30 cursor-pointer transition-colors"
+          title="קפוץ למוזיקה"
+        >
+          <Music className="w-3.5 h-3.5 text-fuchsia-400" />
+          <span className="text-[11px]">מוזיקה</span>
+        </button>
+
+        <button
+          onClick={() => scrollToSection('section-captions')}
+          className="flex-1 py-2 px-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-amber-300 font-bold flex items-center justify-center gap-1 border border-amber-500/30 cursor-pointer transition-colors"
+          title="קפוץ לכתוביות"
+        >
+          <Subtitles className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[11px]">כתוביות {captions.length > 0 ? `(${captions.length})` : ''}</span>
+        </button>
+
+        <button
+          onClick={handleExportMP4}
+          disabled={isExporting}
+          className="py-2 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 text-white font-bold flex items-center justify-center gap-1 shadow-lg shadow-indigo-600/30 disabled:opacity-50 cursor-pointer"
+          title="ייצא MP4"
+        >
+          {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          <span className="text-[11px]">ייצוא</span>
+        </button>
+      </div>
     </div>
   );
 };

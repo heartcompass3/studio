@@ -37,8 +37,8 @@ export function CaptionPreview({ caption, time, style, karaoke }: {
   const page = pageAtWord(captionPages(caption.text, text => context.measureText(text).width, metrics.width), active);
   const accent = style === 'karaoke-brand-cyan' ? '#38BDF8' : style === 'karaoke-brand-coral' ? '#FB7185' : '#FFE600';
   let index = page?.first || 0;
-  return <div className="absolute bottom-8 sm:bottom-12 left-0 right-0 px-4 text-center pointer-events-none z-20 flex justify-center">
-    <span ref={box} data-caption-page className="inline-block px-4 py-2 rounded-2xl font-black text-sm sm:text-base md:text-lg leading-snug"
+  return <div className="absolute bottom-6 sm:bottom-10 left-0 right-0 px-3 sm:px-4 text-center pointer-events-none z-20 flex justify-center">
+    <span ref={box} data-caption-page className="inline-block px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl font-black text-xs sm:text-base md:text-lg leading-snug"
       style={{ width: '92%', background: style === 'karaoke-clean-floating' ? 'transparent' : 'rgba(0,0,0,.85)', color: 'white', textShadow: '0 2px 8px black' }}>
       {page?.lines.map((line, lineIndex) => <span key={lineIndex} data-caption-line dir="rtl" className="block whitespace-nowrap">
         {line.map((word, localIndex) => {
