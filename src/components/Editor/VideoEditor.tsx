@@ -70,8 +70,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  // Mobile View Tab: Switch between video player and subtitles on small screens
-  const [mobileViewTab, setMobileViewTab] = useState<'player' | 'subtitles'>('player');
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.classList.add('ring-2', 'ring-indigo-500');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-indigo-500'), 1500);
+    }
+  };
 
   // Visual Overlays (B-Roll, Hook Cover, PiP)
   const [visualOverlays, setVisualOverlays] = useState<VisualOverlayItem[]>([]);
@@ -346,7 +352,6 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         : (duration || initialDuration || 0);
       const items = await generateCaptionsFromVideoBlob(activeVideoBlob, referenceScript, realDur);
       setCaptions(items);
-      setMobileViewTab('subtitles');
       if (items.some(item => item.needsReview)) onError('התמלול הושלם, אך הגהת הכתיב לא הושלמה. אפשר ללחוץ על הגהה או לתקן ידנית.');
     } catch (err: any) {
       onError(err.message || 'שגיאה בתמלול הכתוביות בעזרת AI');
@@ -651,7 +656,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-95px)] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+    <div className="flex flex-col min-h-screen lg:h-[calc(100vh-95px)] bg-slate-950 rounded-2xl border border-slate-800 overflow-visible lg:overflow-hidden shadow-2xl pb-36 lg:pb-0">
       
       {/* Top Header Bar */}
       <div className="bg-slate-900 px-4 sm:px-6 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
@@ -771,45 +776,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         </div>
       </div>
 
-      {/* Mobile Tab Switcher: Video Player vs Subtitles & Transcription */}
-      <div className="lg:hidden flex bg-slate-900 border-b border-slate-800 p-1.5 gap-1.5 z-20 shrink-0">
-        <button
-          onClick={() => setMobileViewTab('player')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-            mobileViewTab === 'player'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white bg-slate-800/60'
-          }`}
-        >
-          <Play className="w-3.5 h-3.5" />
-          <span>🎬 נגן וידאו ועריכה</span>
-        </button>
-        <button
-          onClick={() => setMobileViewTab('subtitles')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-            mobileViewTab === 'subtitles'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white bg-slate-800/60'
-          }`}
-        >
-          <Subtitles className="w-3.5 h-3.5 text-amber-400" />
-          <span>📝 כתוביות ותמלול {captions.length > 0 ? `(${captions.length})` : ''}</span>
-        </button>
-      </div>
-
-
-
       {/* Main Workspace (Player + Timeline + Captions Panel) */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 h-full overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 min-h-0 h-full overflow-visible lg:overflow-hidden">
         
         {/* Video Player & Controls (7 cols) */}
-        <div className={`lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-0 h-full overflow-hidden ${
-          mobileViewTab === 'subtitles' ? 'hidden lg:flex' : 'flex'
-        }`}>
+        <div className="lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-0 lg:h-full lg:overflow-hidden">
           
           {/* Video Container */}
-          <div 
-            className="flex-1 min-h-[240px] lg:min-h-0 relative flex items-center justify-center p-3 sm:p-5 overflow-hidden group bg-slate-950/80 cursor-pointer"
+          <div className="flex-1 min-h-[220px] max-h-[38vh] lg:max-h-none lg:min-h-0 relative flex items-center justify-center p-2 sm:p-4 overflow-hidden group bg-slate-950/80 cursor-pointer"
             onClick={(e) => {
               if ((e.target as HTMLElement).tagName !== 'VIDEO') return;
               togglePlay();
@@ -954,7 +928,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
 
           {/* Bottom Trimming & Video Tuning Bar */}
-          <div className="bg-slate-900/90 border-t border-slate-800 p-4 space-y-3 z-10">
+          <div id="section-trim" className="bg-slate-900/90 border-t border-slate-800 p-3 sm:p-4 space-y-3 z-10">
             
             {/* Trim Boundary Controllers & Auto Silence Cut */}
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-slate-300">
@@ -1027,7 +1001,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             </div>
 
             {/* Independent voice and music mixer */}
-            <div className="rounded-xl border border-slate-700/80 bg-slate-950/55 p-3 space-y-2.5">
+            <div id="section-music" className="rounded-xl border border-slate-700/80 bg-slate-950/70 p-3 space-y-2.5 transition-all">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-white">
                   <Music className="w-4 h-4 text-fuchsia-400" />
@@ -1160,32 +1134,11 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               </div>
             </div>
 
-            {/* Mobile Dedicated Transcription & Subtitles Quick Bar */}
-            <div className="lg:hidden flex items-center gap-2 pt-2 border-t border-slate-800/80">
-              <button
-                onClick={handleAutoCaptions}
-                disabled={isGeneratingCaptions || !activeVideoUrl}
-                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 disabled:opacity-50 transition-all cursor-pointer"
-              >
-                {isGeneratingCaptions ? <Loader className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-200" />}
-                <span>{isGeneratingCaptions ? 'מתמלל ב-AI...' : '✨ תמלל כתוביות ב-AI'}</span>
-              </button>
-              <button
-                onClick={() => setMobileViewTab('subtitles')}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
-              >
-                <Subtitles className="w-4 h-4 text-amber-400" />
-                <span>כתוביות ({captions.length})</span>
-              </button>
-            </div>
-
           </div>
         </div>
 
           {/* Subtitle Studio & Editing Panel (5 cols) */}
-        <div className={`lg:col-span-5 bg-slate-900 flex flex-col justify-between border-r border-slate-800/80 min-h-0 h-full overflow-hidden ${
-          mobileViewTab === 'player' ? 'hidden lg:flex' : 'flex'
-        }`}>
+        <div id="section-captions" className="lg:col-span-5 bg-slate-900 flex flex-col justify-between border-r border-slate-800/80 min-h-0 lg:h-full lg:overflow-hidden mt-4 lg:mt-0 transition-all">
           
           {/* Subtitle Panel Header & Overlay Options */}
           <div className="p-4 border-b border-slate-800 space-y-3">
