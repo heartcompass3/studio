@@ -70,6 +70,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
 
+  // Mobile View Tab: Switch between video player and subtitles on small screens
+  const [mobileViewTab, setMobileViewTab] = useState<'player' | 'subtitles'>('player');
+
   // Visual Overlays (B-Roll, Hook Cover, PiP)
   const [visualOverlays, setVisualOverlays] = useState<VisualOverlayItem[]>([]);
   const [isOverlayDrawerOpen, setIsOverlayDrawerOpen] = useState(false);
@@ -323,7 +326,16 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   // Auto Captions via Gemini AI (with Reference Script anchoring)
   const handleAutoCaptions = async () => {
-    if (!activeVideoBlob) {
+    let targetBlob = activeVideoBlob;
+    if (!targetBlob && activeVideoUrl) {
+      try {
+        const res = await fetch(activeVideoUrl);
+        targetBlob = await res.blob();
+      } catch (e) {
+        console.warn('Could not fetch blob from activeVideoUrl:', e);
+      }
+    }
+    if (!targetBlob) {
       onError('לא נמצא קובץ וידאו לתמלול. אנא העלה קובץ וידאו או הקלט באולפן.');
       return;
     }
@@ -334,6 +346,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         : (duration || initialDuration || 0);
       const items = await generateCaptionsFromVideoBlob(activeVideoBlob, referenceScript, realDur);
       setCaptions(items);
+      setMobileViewTab('subtitles');
       if (items.some(item => item.needsReview)) onError('התמלול הושלם, אך הגהת הכתיב לא הושלמה. אפשר ללחוץ על הגהה או לתקן ידנית.');
     } catch (err: any) {
       onError(err.message || 'שגיאה בתמלול הכתוביות בעזרת AI');
@@ -695,7 +708,18 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         </div>
 
         {/* Action Export Buttons & Media Layer Drawer Trigger */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Prominent Auto-Captions in Header for Instant Mobile & Desktop Access */}
+          <button
+            onClick={handleAutoCaptions}
+            disabled={isGeneratingCaptions || !activeVideoUrl}
+            className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/25 disabled:opacity-50 transition-all cursor-pointer"
+            title="תמלול כתוביות אוטומטי של הוידאו בעזרת Gemini AI"
+          >
+            {isGeneratingCaptions ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-200" />}
+            <span>{isGeneratingCaptions ? 'מתמלל ב-AI...' : '✨ תמלל ב-AI'}</span>
+          </button>
+
           {/* Direct Video Upload Trigger */}
           <button
             onClick={() => videoFileInputRef.current?.click()}
@@ -747,11 +771,41 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         </div>
       </div>
 
+      {/* Mobile Tab Switcher: Video Player vs Subtitles & Transcription */}
+      <div className="lg:hidden flex bg-slate-900 border-b border-slate-800 p-1.5 gap-1.5 z-20 shrink-0">
+        <button
+          onClick={() => setMobileViewTab('player')}
+          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            mobileViewTab === 'player'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white bg-slate-800/60'
+          }`}
+        >
+          <Play className="w-3.5 h-3.5" />
+          <span>🎬 נגן וידאו ועריכה</span>
+        </button>
+        <button
+          onClick={() => setMobileViewTab('subtitles')}
+          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            mobileViewTab === 'subtitles'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white bg-slate-800/60'
+          }`}
+        >
+          <Subtitles className="w-3.5 h-3.5 text-amber-400" />
+          <span>📝 כתוביות ותמלול {captions.length > 0 ? `(${captions.length})` : ''}</span>
+        </button>
+      </div>
+
+
+
       {/* Main Workspace (Player + Timeline + Captions Panel) */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 h-full overflow-y-auto lg:overflow-hidden">
         
         {/* Video Player & Controls (7 cols) */}
-        <div className="lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-[640px] lg:min-h-0 h-full overflow-hidden">
+        <div className={`lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-0 h-full overflow-hidden ${
+          mobileViewTab === 'subtitles' ? 'hidden lg:flex' : 'flex'
+        }`}>
           
           {/* Video Container */}
           <div 
@@ -1101,16 +1155,37 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               <div>
                 זמן נוכחי: <span className="text-white font-bold">{currentTime.toFixed(1)}s</span> מתוך <span className="text-white font-bold">{duration.toFixed(1)}s</span>
               </div>
-              <div>
-                💡 קיצור מקלדת: <span className="text-slate-300 font-bold">Space</span> לניגון/עצירה, <span className="text-slate-300 font-bold">חיצים ימינה/שמאלה</span> להזזת שנייה
+              <div className="hidden sm:block">
+                💡 קיצור מקלדת: <span className="text-slate-300 font-bold">Space</span> לניגון/עצירה, <span className="text-slate-300 font-bold">חיצים</span> להזזת שנייה
               </div>
+            </div>
+
+            {/* Mobile Dedicated Transcription & Subtitles Quick Bar */}
+            <div className="lg:hidden flex items-center gap-2 pt-2 border-t border-slate-800/80">
+              <button
+                onClick={handleAutoCaptions}
+                disabled={isGeneratingCaptions || !activeVideoUrl}
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {isGeneratingCaptions ? <Loader className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-200" />}
+                <span>{isGeneratingCaptions ? 'מתמלל ב-AI...' : '✨ תמלל כתוביות ב-AI'}</span>
+              </button>
+              <button
+                onClick={() => setMobileViewTab('subtitles')}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              >
+                <Subtitles className="w-4 h-4 text-amber-400" />
+                <span>כתוביות ({captions.length})</span>
+              </button>
             </div>
 
           </div>
         </div>
 
-        {/* Subtitle Studio & Editing Panel (5 cols) */}
-        <div className="lg:col-span-5 bg-slate-900 flex flex-col justify-between border-r border-slate-800/80 min-h-0 h-full overflow-hidden">
+          {/* Subtitle Studio & Editing Panel (5 cols) */}
+        <div className={`lg:col-span-5 bg-slate-900 flex flex-col justify-between border-r border-slate-800/80 min-h-0 h-full overflow-hidden ${
+          mobileViewTab === 'player' ? 'hidden lg:flex' : 'flex'
+        }`}>
           
           {/* Subtitle Panel Header & Overlay Options */}
           <div className="p-4 border-b border-slate-800 space-y-3">
@@ -1327,12 +1402,22 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                 <Subtitles className="w-10 h-10 mb-3 opacity-30 text-indigo-400" />
                 <p className="text-sm font-bold text-slate-300 mb-1">עדיין אין כתוביות</p>
                 <p className="text-xs max-w-xs text-slate-400 mb-4">לחץ על "תמלל אוטומטית" ליצירת כתוביות AI מדויקות, או הוסף כתובית ידנית.</p>
-                <button
-                  onClick={addCaption}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-indigo-400" /> הוסף כתובית ראשונה
-                </button>
+                <div className="flex items-center gap-2 flex-wrap justify-center">
+                  <button
+                    onClick={handleAutoCaptions}
+                    disabled={isGeneratingCaptions}
+                    className="px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/25 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isGeneratingCaptions ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-200" />}
+                    <span>{isGeneratingCaptions ? 'מתמלל ב-AI...' : '✨ תמלל אוטומטית עכשיו'}</span>
+                  </button>
+                  <button
+                    onClick={addCaption}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-indigo-400" /> הוסף ידנית
+                  </button>
+                </div>
               </div>
             ) : (
               captions.map((cap, idx) => {
