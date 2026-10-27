@@ -11,7 +11,7 @@ import {
 import { CaptionTimeInput } from './CaptionTimeInput';
 import { updateCaptionTiming, shiftAllCaptionsList, captionIsActive } from '../../services/captionTiming';
 import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem } from '../../types/studio';
-import { generateCaptionsFromVideoBlob, proofreadHebrewCaptions, sanitizeAndSequenceCaptions } from '../../services/geminiService';
+import { generateCaptionsFromVideoBlob, proofreadHebrewCaptions } from '../../services/geminiService';
 import { 
   exportVideoToMP4, 
   exportCaptionsToSRT, 
@@ -21,20 +21,24 @@ import {
 } from '../../services/mp4ExportService';
 
 interface VideoEditorProps {
+  active?: boolean;
   videoBlob: Blob | null;
   videoUrl: string | null;
   initialDuration?: number;
   referenceScript?: string;
   onBackToStudio: () => void;
+  onVideoUploaded?: (blob: Blob, url: string) => void;
   onError: (msg: string) => void;
 }
 
 export const VideoEditor: React.FC<VideoEditorProps> = ({
+  active = true,
   videoBlob,
   videoUrl,
   initialDuration = 0,
   referenceScript = '',
   onBackToStudio,
+  onVideoUploaded,
   onError
 }) => {
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
@@ -178,7 +182,20 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     const url = URL.createObjectURL(file);
     setUploadedUrl(url);
     setUploadedBlob(file);
+    setDuration(0);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setCaptions([]);
+    setCurrentTime(0);
+    setHasCustomTrim(false);
+    if (onVideoUploaded) {
+      onVideoUploaded(file, url);
+    }
   };
+
+  useEffect(() => {
+    if (!active) { videoRef.current?.pause(); musicRef.current?.pause(); setIsPlaying(false); }
+  }, [active]);
 
   // High-Precision 60fps Playhead Tracking for Ultra-Smooth Karaoke Sync
   useEffect(() => {
@@ -209,6 +226,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   // Keyboard shortcuts (Space = Play/Pause, Arrow Left/Right = Seek 1s)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!active) return;
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
@@ -239,7 +257,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isPlaying, duration, hasCustomTrim, trimEnd, trimStart]);
+  }, [active, isPlaying, duration, hasCustomTrim, trimEnd, trimStart]);
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
@@ -250,9 +268,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         height: videoRef.current.videoHeight
       });
     }
-    const validDur = (dur && isFinite(dur) && dur > 1.5) ? dur : (initialDuration || 0);
+    const validDur = (Number.isFinite(dur) && dur > 0) ? dur : (initialDuration || 0);
     if (validDur > 0) {
-      const maxDur = Math.max(validDur, initialDuration || 0, duration || 0);
+      const maxDur = validDur;
       setDuration(maxDur);
       if (!hasCustomTrim) {
         setTrimEnd(maxDur);
@@ -336,8 +354,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         ? videoRef.current.duration
         : (duration || initialDuration || 0);
       const corrected = await proofreadHebrewCaptions(captions, referenceScript);
-      const sanitized = sanitizeAndSequenceCaptions(corrected, realDur);
-      setCaptions(sanitized);
+      setCaptions(corrected);
     } catch (err: any) {
       onError(err.message || 'שגיאה בהגהה הלשונית');
     } finally {
@@ -412,7 +429,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const applyCaptionStartUpdate = (id: number, value: number, overrideRipple?: boolean) => {
     const liveDur = (videoRef.current?.duration && isFinite(videoRef.current.duration) && videoRef.current.duration > 0) ? videoRef.current.duration : duration;
     setCaptions(previous => updateCaptionTiming(previous, id, 'start', value, {
-      ripple: overrideRipple ?? rippleSync, duration: liveDur, bidirectionalRipple: true,
+      ripple: overrideRipple ?? rippleSync, duration: liveDur, bidirectionalRipple: false,
     }));
   };
   const applyCaptionEndUpdate = (id: number, value: number) => {
@@ -422,7 +439,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const nudgeCaptionStart = (id: number, delta: number) => {
     setCaptions(previous => {
       const item = previous.find(cap => cap.id === id);
-      return item ? updateCaptionTiming(previous, id, 'start', item.start + delta, { ripple: rippleSync, duration, bidirectionalRipple: true }) : previous;
+      return item ? updateCaptionTiming(previous, id, 'start', item.start + delta, { ripple: rippleSync, duration, bidirectionalRipple: false }) : previous;
     });
   };
   const nudgeCaptionEnd = (id: number, delta: number) => {
@@ -438,27 +455,19 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     setCurrentTime(at);
     return at;
   };
-  const setCaptionStartToCurrent = (id: number) => {
+  const pinCaption = (id: number, field: 'start' | 'end') => {
     const at = pinTime();
-    const item = captions.find(cap => cap.id === id);
-    if (item) {
-      const delta = at - item.start;
-      applyCaptionStartUpdate(id, at);
-      const sign = delta >= 0 ? '+' : '';
-      setSyncFeedback(
-        rippleSync
-          ? `הכתובית סונכרנה ל-${at.toFixed(2)}s (כל הכתוביות הוזזו ב-${sign}${delta.toFixed(2)}s קדימה ואחורה)`
-          : `תחילת הכתובית נקבעה ל-${at.toFixed(2)}s`
-      );
-      setTimeout(() => setSyncFeedback(null), 3500);
-    }
+    const liveDuration = Number.isFinite(videoRef.current?.duration) ? videoRef.current!.duration : duration;
+    const result = updateCaptionTiming(captions, id, field, at, { ripple: rippleSync, duration: liveDuration });
+    setCaptions(result);
+    const applied = result.find(cap => cap.id === id)?.[field] ?? at;
+    setSyncFeedback(Math.abs(applied - at) > .001
+      ? `הזמן הוגבל ל-${applied.toFixed(3)} שניות כדי לא לדחוס כתוביות בגבולות הסרטון. אפשר לכבות סנכרון שרשרת.`
+      : `ה${field === 'start' ? 'תחלה' : 'סיום'} נקבעה ל-${applied.toFixed(3)} שניות. הכתוביות הקודמות נשמרו.`);
+    setTimeout(() => setSyncFeedback(null), 4000);
   };
-  const setCaptionEndToCurrent = (id: number) => {
-    const at = pinTime();
-    applyCaptionEndUpdate(id, at);
-    setSyncFeedback(`סיום הכתובית נקבע ל-${at.toFixed(2)}s`);
-    setTimeout(() => setSyncFeedback(null), 3000);
-  };
+  const setCaptionStartToCurrent = (id: number) => pinCaption(id, 'start');
+  const setCaptionEndToCurrent = (id: number) => pinCaption(id, 'end');
   const shiftSubsequentCaptions = (id: number, delta: number) => nudgeTail(id, delta);
   const nudgeTail = (id: number, delta: number) => {
     setCaptions(previous => {
@@ -469,8 +478,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const shiftAllCaptions = (delta: number) => {
     setCaptions(prev => {
       const shifted = shiftAllCaptionsList(prev, delta, duration);
-      const sign = delta >= 0 ? '+' : '';
-      setSyncFeedback(`כל הכתוביות הוזזו ב-${sign}${delta} שניות`);
+      const actual = shifted.length && prev.length ? shifted[0].start - [...prev].sort((a,b) => a.start-b.start)[0].start : 0;
+      setSyncFeedback(`כל הכתוביות הוזזו ב-${actual.toFixed(3)} שניות, ללא שינוי במשכים.`);
       setTimeout(() => setSyncFeedback(null), 3000);
       return shifted;
     });
@@ -584,7 +593,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       onError('אין כתוביות לייצוא');
       return;
     }
-    const srtContent = exportCaptionsToSRT(captions);
+    const srtContent = exportCaptionsToSRT(captions, trimStart, trimEnd || duration);
     const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -619,7 +628,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           <input
             ref={videoFileInputRef}
             type="file"
-            accept="video/mp4,video/webm"
+            accept="video/*,video/mp4,video/webm,video/quicktime,video/mov,.mp4,.webm,.mov,.m4v" onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
             className="hidden"
             onChange={handleVideoFileSelected}
           />
@@ -699,7 +708,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           <input
             ref={videoFileInputRef}
             type="file"
-            accept="video/mp4,video/webm"
+            accept="video/*,video/mp4,video/webm,video/quicktime,video/mov,.mp4,.webm,.mov,.m4v" onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
             className="hidden"
             onChange={handleVideoFileSelected}
           />
@@ -739,14 +748,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       </div>
 
       {/* Main Workspace (Player + Timeline + Captions Panel) */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 h-full overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 h-full overflow-y-auto lg:overflow-hidden">
         
         {/* Video Player & Controls (7 cols) */}
-        <div className="lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-0 h-full overflow-hidden">
+        <div className="lg:col-span-7 bg-black flex flex-col justify-between relative border-l border-slate-800/80 min-h-[640px] lg:min-h-0 h-full overflow-hidden">
           
           {/* Video Container */}
           <div 
-            className="flex-1 min-h-0 relative flex items-center justify-center p-3 sm:p-5 overflow-hidden group bg-slate-950/80 cursor-pointer"
+            className="flex-1 min-h-[240px] lg:min-h-0 relative flex items-center justify-center p-3 sm:p-5 overflow-hidden group bg-slate-950/80 cursor-pointer"
             onClick={(e) => {
               if ((e.target as HTMLElement).tagName !== 'VIDEO') return;
               togglePlay();
@@ -1298,7 +1307,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                       className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer"
                       title="מתיחת ויישור כל הכתוביות באופן פרופורציונלי לאורך כל משך הסרטון"
                     >
-                      פרוס לסוף הסרטון
+                      מתיחה ידנית — משנה קצב
                     </button>
                   </div>
                 </div>

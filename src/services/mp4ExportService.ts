@@ -1265,17 +1265,15 @@ export const exportVideoToMP4 = async (options: RenderOptions): Promise<Blob> =>
   return await exportVideoWithMediaRecorder(options);
 };
 
-export const exportCaptionsToSRT = (captions: CaptionItem[]): string => {
+export const exportCaptionsToSRT = (captions: CaptionItem[], from = 0, to = Infinity): string => {
   const formatTime = (seconds: number): string => {
-    const pad = (n: number, z = 2) => ('00' + n).slice(-z);
-    const ms = Math.floor((seconds % 1) * 1000);
-    const secs = Math.floor(seconds % 60);
-    const mins = Math.floor((seconds / 60) % 60);
-    const hrs = Math.floor(seconds / 3600);
-    return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
+    const total = Math.max(0, Math.round(seconds * 1000));
+    const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+    return `${pad(Math.floor(total / 3600000))}:${pad(Math.floor(total / 60000) % 60)}:${pad(Math.floor(total / 1000) % 60)},${pad(total % 1000, 3)}`;
   };
 
-  return captions
+  return captions.filter(cap => cap.end > from && cap.start < to)
+    .map(cap => ({ ...cap, start: Math.max(from, cap.start) - from, end: Math.min(to, cap.end) - from }))
     .map((cap, i) => `${i + 1}\n${formatTime(cap.start)} --> ${formatTime(cap.end)}\n${cap.text}\n`)
     .join('\n');
 };

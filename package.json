@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/caption-timing.test.cjs"
   },
   "dependencies": {
     "@mediapipe/camera_utils": "^0.3.1675466862",

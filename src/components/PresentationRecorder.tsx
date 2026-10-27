@@ -45,6 +45,10 @@ export function PresentationRecorder({
   const boostedPipeline = useRef<BoostedAudioResult | null>(null);
   const cues = useRef<{ index: number; start: number }[]>([]);
   const start = useRef(0);
+  const stoppedAt = useRef<number | null>(null);
+  const stopRecording = () => {
+    if (recorder.current?.state === "recording") { stoppedAt.current = performance.now(); recorder.current.stop(); }
+  };
   const alive = useRef(true);
   const urls = useRef<string[]>([]);
   const frame = useRef(0);
@@ -62,14 +66,14 @@ export function PresentationRecorder({
     alive.current = true;
     return () => {
       alive.current = false;
-      if (recorder.current?.state === "recording") recorder.current.stop();
+      if (recorder.current?.state === "recording") stopRecording();
       stopStream();
       urls.current.forEach(URL.revokeObjectURL);
     };
   }, []);
   useEffect(() => {
     if (!active) {
-      if (recorder.current?.state === "recording") recorder.current.stop();
+      if (recorder.current?.state === "recording") stopRecording();
       else stopStream();
       setEnabled(false);
     }
@@ -180,7 +184,7 @@ export function PresentationRecorder({
         setEnabled(false);
       };
       rec.onstop = async () => {
-        const duration = (performance.now() - start.current) / 1000;
+        const duration = ((stoppedAt.current ?? performance.now()) - start.current) / 1000;
         cancelAnimationFrame(frame.current);
         if (!cameraRef.current)
           recordStream.getVideoTracks().forEach((t) => t.stop());
@@ -212,6 +216,7 @@ export function PresentationRecorder({
           if (alive.current) setLoading(false);
         }
       };
+      stoppedAt.current = null;
       start.current = performance.now();
       cues.current = [{ index, start: 0 }];
       setSeconds(0);
@@ -269,7 +274,7 @@ export function PresentationRecorder({
         <button
           className={recording ? "sv-button sv-danger" : "sv-primary"}
           disabled={loading || (!recording && (!enabled || !slides.length))}
-          onClick={() => (recording ? recorder.current?.stop() : begin())}
+          onClick={() => (recording ? stopRecording() : begin())}
         >
           {recording ? <Square size={15} /> : <Play size={15} />}{" "}
           {recording ? "סיים ופתח בעורך" : "התחל הקלטה"}

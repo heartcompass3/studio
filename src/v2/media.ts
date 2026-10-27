@@ -1,6 +1,6 @@
 import { Asset, Composition, Layer, MediaPool } from "./types";
 
-const SEEK_TIMEOUT_MS = 60;
+const SEEK_TIMEOUT_MS = 10000;
 
 function abortError(): DOMException {
   return new DOMException("The export was cancelled.", "AbortError");
@@ -111,42 +111,28 @@ async function seekVideo(
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) throw abortError();
-  if (
-    Math.abs(video.currentTime - target) <= 0.04 &&
-    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
-  )
-    return;
+  if (!video.seeking && Math.abs(video.currentTime - target) < 0.0005 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(
-      () => finish(), // Fallback gracefully if frame seek exceeds 200ms
-      SEEK_TIMEOUT_MS,
-    );
-    const onAbort = () => finish(abortError());
-    const onSeeked = () => {
-      if ('requestVideoFrameCallback' in video) {
-        (video as any).requestVideoFrameCallback(() => finish());
-      } else {
-        requestAnimationFrame(() => finish());
-      }
-    };
-    const onError = () => finish(new Error("The video failed while seeking."));
+    let settled = false;
     const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("error", onError);
       signal?.removeEventListener("abort", onAbort);
       error ? reject(error) : resolve();
     };
+    const onAbort = () => finish(abortError());
+    // seeked fires after the requested frame has decoded; do not wait for playback on a paused video.
+    const onSeeked = () => finish();
+    const onError = () => finish(new Error("The video failed while seeking."));
+    const timer = window.setTimeout(() => finish(new Error("טעינת הפריים ארכה זמן רב מדי. נסה שוב.")), SEEK_TIMEOUT_MS);
     video.addEventListener("seeked", onSeeked, { once: true });
     video.addEventListener("error", onError, { once: true });
     signal?.addEventListener("abort", onAbort, { once: true });
-    try {
-      video.currentTime = target;
-    } catch (error) {
-      finish(
-        error instanceof Error ? error : new Error("Unable to seek video."),
-      );
-    }
+    try { video.currentTime = target; }
+    catch (error) { finish(error instanceof Error ? error : new Error("Unable to seek video.")); }
   });
 }
 

@@ -40,7 +40,7 @@ async function decodeAndMixAudio(
     const source = offline.createBufferSource();
     const sourceGain = offline.createGain();
     source.buffer = sourceAudio;
-    sourceGain.gain.value = Math.max(0, Math.min(1, options.sourceVolume ?? 1));
+    sourceGain.gain.value = Math.max(0, Math.min(1.5, options.sourceVolume ?? 1));
     source.connect(sourceGain).connect(limiter);
     source.start(0);
 
@@ -81,27 +81,8 @@ export async function exportComposition(
     aborted(options.signal);
     const base = pool.assets.get(c.baseAssetId)!;
     if (!base) throw new Error("קובץ המקור חסר");
-    options.onProgress(0, "מכין ייצוא יציב בזמן אמת");
-    let realtimeError: unknown = null;
-    const realtimeSupported =
-      typeof MediaRecorder !== "undefined" &&
-      [
-        "video/mp4;codecs=avc1,mp4a.40.2",
-        "video/mp4",
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-      ].some((mime) => MediaRecorder.isTypeSupported(mime));
-    if (realtimeSupported) {
-      try {
-        return await realtimeExport(c, pool, options);
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") throw error;
-        realtimeError = error;
-        options.onProgress(0, "הייצוא הרגיל נכשל — עובר למקודד החלופי");
-      }
-    }
-
-    options.onProgress(0, "בודק מקודד חלופי...");
+    options.onProgress(0, "מכין ייצוא לפי זמני המקור");
+    let codecError: unknown = null;
     const w = window as any;
     let chosenCodec = "avc1.640028";
     const candidateCodecs = ["avc1.640028", "avc1.4d002a", "avc1.42001f"];
@@ -155,9 +136,20 @@ export async function exportComposition(
         bitrate: 6_000_000,
         framerate: 30,
       };
-      return await offlineExport(c, pool, audio, videoConfig, options);
+      try { return await offlineExport(c, pool, audio, videoConfig, options); }
+      catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        codecError = error;
+      }
     }
-    if (realtimeError) throw realtimeError;
+    const realtimeSupported = typeof MediaRecorder !== "undefined" && [
+      "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus",
+    ].some(mime => MediaRecorder.isTypeSupported(mime));
+    if (realtimeSupported) {
+      options.onProgress(0, "משתמש בייצוא חלופי בזמן אמת — יש להשאיר את הלשונית גלויה");
+      return await realtimeExport(c, pool, options);
+    }
+    if (codecError) throw codecError;
     throw new Error("הדפדפן אינו תומך במקודדי הווידאו הנדרשים");
   } finally {
     disposeMediaPool(pool);

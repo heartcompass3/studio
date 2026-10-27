@@ -20,6 +20,7 @@ interface RecordingStudioProps {
   scriptText: string;
   onVideoRecorded: (blob: Blob, url: string, duration?: number) => void;
   onOpenEditor: () => void;
+  onOpenOriginalEditor?: () => void;
   onError: (msg: string) => void;
 }
 
@@ -34,6 +35,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   scriptText,
   onVideoRecorded,
   onOpenEditor,
+  onOpenOriginalEditor,
   onError
 }) => {
   // Studio Mode: Camera Video OR Voiceover & B-Roll / Slideshow
@@ -118,6 +120,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartingRef = useRef(false);
   const recordStartTimeRef = useRef<number>(0);
+  const recordStopTimeRef = useRef<number | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bgVideoInputRef = useRef<HTMLInputElement>(null);
@@ -129,7 +132,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   useEffect(() => {
     return () => {
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current?.state === 'recording') { recordStopTimeRef.current = performance.now(); mediaRecorderRef.current.stop(); }
       boostedAudioPipelineRef.current?.cleanup();
       stopCamera();
       stopMic();
@@ -643,7 +646,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       }
       if (chunksRef.current.length === 0) return;
       const rawBlob = new Blob(chunksRef.current, { type: 'video/webm' });
-      const exactDurationSecs = Math.max(0.5, (performance.now() - recordStartTimeRef.current) / 1000);
+      const exactDurationSecs = Math.max(0.5, ((recordStopTimeRef.current ?? performance.now()) - recordStartTimeRef.current) / 1000);
       
       const fixedBlob = await fixWebmDuration(rawBlob, exactDurationSecs * 1000);
       const url = URL.createObjectURL(fixedBlob);
@@ -655,6 +658,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     };
 
     try {
+      recordStopTimeRef.current = null;
+      recordStartTimeRef.current = performance.now();
       recorder.start();
     } catch (error) {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
@@ -669,6 +674,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
   const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      recordStopTimeRef.current = performance.now();
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -941,7 +947,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               <input
                 ref={bgVideoInputRef}
                 type="file"
-                accept="video/mp4,video/webm"
+                accept="video/*,video/mp4,video/webm,video/quicktime,video/mov,.mp4,.webm,.mov,.m4v" onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
                 className="hidden"
                 onChange={handleUploadBgVideo}
               />
@@ -1403,6 +1409,32 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           {/* Recorded Video Playback Review */}
           {recordedUrl && (
             <div className="w-full h-full relative flex items-center justify-center bg-black">
+              {/* Quick Actions Bar right on top of video for mobile & desktop */}
+              <div className="absolute top-3 inset-x-3 z-30 flex flex-wrap items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-slate-700/80 shadow-2xl">
+                <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>ההקלטה מוכנה!</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {onOpenOriginalEditor && (
+                    <button
+                      onClick={onOpenOriginalEditor}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
+                    >
+                      <span>עבור לעורך מקורי</span>
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={onOpenEditor}
+                    className="px-3 py-1.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
+                  >
+                    <span>עבור לבימוי ועריכה (V2)</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
               <video
                 ref={previewVideoRef}
                 src={recordedUrl}
@@ -1562,20 +1594,28 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           )}
         </div>
 
-        {/* Right Area: Move to Editor & Subtitles */}
-        <div>
+                {/* Right Area: Move to Editor & Subtitles */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {recordedUrl && onOpenOriginalEditor && (
+            <button
+              onClick={onOpenOriginalEditor}
+              disabled={!recordedBlob}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-indigo-600/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
+            >
+              <span>עבור לעורך מקורי</span>
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={onOpenEditor}
             disabled={!recordedBlob}
-            className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/30 disabled:opacity-40 transition-all transform active:scale-95"
+            className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-500/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
           >
-            <span>עבור לעריכה וכתוביות MP4</span>
+            <span>עבור לבימוי ועריכה (V2)</span>
             <ArrowLeft className="w-4 h-4" />
           </button>
         </div>
-
       </div>
-
     </div>
   );
 };

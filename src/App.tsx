@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import { ActiveTab } from "./types/studio";
 import { Navigation } from "./components/Navigation";
@@ -26,6 +26,8 @@ export const App: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(0);
 
+  useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+
   const triggerError = (msg: string) => {
     setErrorMsg(msg);
     setTimeout(() => setErrorMsg(""), 6000);
@@ -33,7 +35,7 @@ export const App: React.FC = () => {
 
   const handleVideoRecorded = (blob: Blob, url: string, dur?: number) => {
     setVideoBlob(blob);
-    setVideoUrl(url);
+    setVideoUrl(URL.createObjectURL(blob));
     if (dur && dur > 0) {
       setVideoDuration(dur);
     }
@@ -106,21 +108,27 @@ export const App: React.FC = () => {
             scriptText={currentScript}
             onVideoRecorded={handleVideoRecorded}
             onOpenEditor={() => setActiveTab("editor-v2")}
+            onOpenOriginalEditor={() => setActiveTab("editor")}
             onError={triggerError}
           />
         )}
 
         {/* TAB 3: Pro Video Editor & Subtitles */}
-        {activeTab === "editor" && (
+        <div hidden={activeTab !== "editor"}>
           <VideoEditor
+            active={activeTab === "editor"}
             videoBlob={videoBlob}
             videoUrl={videoUrl}
             initialDuration={videoDuration}
             referenceScript={currentScript}
             onBackToStudio={() => setActiveTab("studio")}
+            onVideoUploaded={(blob, url) => {
+              setVideoBlob(blob);
+              setVideoUrl(url);
+            }}
             onError={triggerError}
           />
-        )}
+        </div>
 
         {/* TAB 4: Hormozi Offer Lab */}
         {activeTab === "offer" && (

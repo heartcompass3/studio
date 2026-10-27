@@ -45,7 +45,7 @@ import {
   uid,
 } from "../v2/project";
 import { updateCaptionTiming } from "../services/captionTiming";
-import { generateCaptionsFromVideoBlob, proofreadHebrewCaptions, sanitizeAndSequenceCaptions } from "../services/geminiService";
+import { generateCaptionsFromVideoBlob, proofreadHebrewCaptions } from "../services/geminiService";
 import { CaptionTimeInput } from "./Editor/CaptionTimeInput";
 import { PresentationRecorder } from "./PresentationRecorder";
 import "./studio-v2.css";
@@ -332,7 +332,7 @@ export function EditorV2({
         seeking = true;
         seekComposition(s.doc, p, Math.min(s.time, s.doc.duration - 0.001))
           .then(() => {
-            if (!stopped && pool.current === p)
+            if (!stopped && pool.current === p && state.current.doc === s.doc && !state.current.playing && Math.abs(state.current.time - s.time) < .001)
               renderComposition(ctx, s.doc, p, s.time);
           })
           .catch((e) => {
@@ -362,9 +362,10 @@ export function EditorV2({
     const current = state.current.doc;
     const offset = current.captionOffset || 0;
     const captions = updateCaptionTiming(current.captions, id, field, visibleTime - offset, {
-      ripple: current.captionRipple !== false, duration: current.duration, offset, bidirectionalRipple: true,
+      ripple: current.captionRipple !== false, duration: current.duration, offset, bidirectionalRipple: false,
     });
     if (captions !== current.captions) commit({ ...current, captions });
+    return (captions.find(item => item.id === id)?.[field] ?? visibleTime - offset) + offset;
   };
   const pinCaption = (id: number, field: 'start' | 'end') => {
     const current = state.current;
@@ -373,14 +374,10 @@ export function EditorV2({
     base?.pause();
     setPlaying(false);
     setTime(at);
-    editCaptionTime(id, field, at);
-    setStatus(
-      field === 'start'
-        ? (current.doc.captionRipple !== false
-          ? `הכתובית סונכרנה ל-${at.toFixed(2)}s (סנכרון קדימה ואחורה)`
-          : `תחילת הכתובית נקבעה ל-${at.toFixed(2)}s`)
-        : `סיום הכתובית נקבע ל-${at.toFixed(2)}s`
-    );
+    const applied = editCaptionTime(id, field, at);
+    setStatus(Math.abs(applied - at) > .001
+      ? `הזמן הוגבל ל-${applied.toFixed(3)} שניות כדי לשמור על משכי הכתוביות בגבולות הסרטון. אפשר לכבות סנכרון שרשרת ולכוון מקטע בודד.`
+      : `ה${field === 'start' ? 'תחלה' : 'סיום'} סונכרנה ל-${applied.toFixed(3)} שניות. הכתוביות הקודמות נשמרו.`);
   };
   const update = (changes: Partial<Layer>) => {
     if (!chosen) return;
@@ -432,6 +429,8 @@ export function EditorV2({
         ...doc,
         baseAssetId: a.id,
         duration: a.duration!,
+        captions: [],
+        captionOffset: 0,
         layers: doc.layers.map((l) => ({
           ...l,
           start: Math.min(l.start, Math.max(0, a.duration! - 0.1)),
@@ -629,8 +628,7 @@ export function EditorV2({
     setBusy("מגיה כתיב");
     try {
       const captions = await proofreadHebrewCaptions(doc.captions, scriptText);
-      const sanitized = sanitizeAndSequenceCaptions(captions, doc.duration);
-      commit({ ...doc, captions: sanitized });
+      commit({ ...doc, captions });
       setStatus("הגהת הכתיב הושלמה. זמני הכתוביות נשמרו.");
     } catch (error) { handleError(error); }
     finally { setBusy(""); }
@@ -1723,8 +1721,8 @@ export function EditorV2({
                 <button
                   type="button"
                   className="sv-icon"
-                  title="התחל כאן - סנכרן תחילת כתובית לזמן הנגן (מזיז את כל הכתוביות קדימה ואחורה)"
-                  aria-label="התחל כאן - סנכרן תחילת כתובית לזמן הנוכחי"
+                  title="קבע התחלה בזמן הנגן והזז את הכתובית והבאות, בלי לשנות את הקודמות"
+                  aria-label="סנכרן את תחילת הכתובית לזמן הנוכחי"
                   onClick={() => pinCaption(cap.id, 'start')}
                 >⏱</button>
                 <button type="button" className="sv-icon" title="קבע סיום בזמן הנגן"

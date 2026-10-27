@@ -1,3 +1,5 @@
+import { sanitizeAndSequenceCaptions } from './captionNormalization';
+export { sanitizeAndSequenceCaptions } from './captionNormalization';
 import { splitLongCaptions } from './captionLayout';
 import { WRITING_DIRECTION, EDITOR_DIRECTION } from "./writingDirection";
 import {
@@ -810,123 +812,6 @@ export const generateAudioFromText = async (text: string): Promise<string> => {
   throw new Error('שירות ההקראה אינו זמין בדפדפן זה');
 };
 
-/**
- * Ensures captions are strictly monotonically increasing,
- * smoothly spaced without overlapping or jumping back-and-forth,
- * and eliminates hallucinated timestamp jumps while preserving conversational flow.
- */
-export function sanitizeAndSequenceCaptions(
-  rawItems: any[],
-  durationSeconds?: number
-): CaptionItem[] {
-  if (!rawItems || !Array.isArray(rawItems) || rawItems.length === 0) return [];
-
-  // Filter empty text or title metadata
-  const valid = rawItems
-    .map((item, idx) => ({
-      id: typeof item.id === 'number' ? item.id : idx,
-      start: Number(item.start),
-      end: Number(item.end),
-      text: String(item.text || '').trim()
-    }))
-    .filter(item =>
-      Number.isFinite(item.start) &&
-      Number.isFinite(item.end) &&
-      item.text.length > 0 &&
-      !/^(?:כותרת|נושא|הוק|פרק|מבנה|שלב|Title|Topic|Hook):/i.test(item.text)
-    );
-
-  if (!valid.length) return [];
-
-  // Detect milliseconds scaling if max end timestamp is huge compared to video duration
-  const maxEnd = Math.max(...valid.map(c => c.end));
-  const scale = durationSeconds && maxEnd > durationSeconds * 8 ? 0.001 : 1;
-  const limit = durationSeconds && durationSeconds > 0 ? durationSeconds : Number.POSITIVE_INFINITY;
-
-  // Step 1: Normalize scale
-  let items = valid.map((c, idx) => ({
-    id: idx,
-    start: Math.max(0, Math.min(limit, c.start * scale)),
-    end: Math.max(0, Math.min(limit, c.end * scale)),
-    text: c.text
-  }));
-
-  // Step 2: Fix inverted intervals inside individual cues (start >= end)
-  items = items.map(c => {
-    const wordCount = c.text.split(/\s+/).filter(Boolean).length;
-    const minDur = Math.max(0.8, Math.min(4.0, wordCount * 0.35));
-    if (c.end <= c.start + 0.1) {
-      return { ...c, end: Math.min(limit, c.start + minDur) };
-    }
-    return c;
-  });
-
-  // Step 3: Enforce strict chronological forward monotonicity.
-  // If an LLM generated timestamps that jump backward (e.g. 5s -> 12s -> 6s -> 14s),
-  // we detect that the text was spoken in forward sequence, and clamp/interpolate the timestamp
-  // so it never goes backwards or collides.
-  const sequenced: CaptionItem[] = [];
-  let prevEnd = 0;
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    const wordCount = item.text.split(/\s+/).filter(Boolean).length;
-    const minDuration = Math.max(0.75, Math.min(4.5, wordCount * 0.32));
-
-    let start = item.start;
-    let end = item.end;
-
-    // If start jumped backward before prevEnd, push it forward cleanly
-    if (start < prevEnd) {
-      start = Number((prevEnd + 0.03).toFixed(2));
-    }
-
-    // Check if end is too short or inverted
-    if (end < start + minDuration) {
-      end = Number((start + minDuration).toFixed(2));
-    }
-
-    // Check forward jump outlier: if start leaped ahead by >10s from prevEnd,
-    // but the next items jump back, smooth this outlier
-    if (i < items.length - 1) {
-      const nextRawStart = items[i + 1].start * scale;
-      if (nextRawStart < start && nextRawStart >= prevEnd) {
-        // Current item was a forward jump outlier! Smooth it between prevEnd and nextRawStart
-        start = Number((prevEnd + 0.03).toFixed(2));
-        end = Number(Math.min(nextRawStart - 0.03, start + minDuration).toFixed(2));
-        if (end <= start) end = Number((start + minDuration).toFixed(2));
-      }
-    }
-
-    // Cap at video duration limit if known
-    if (Number.isFinite(limit) && limit > 0) {
-      start = Math.min(limit - 0.2, start);
-      end = Math.min(limit, Math.max(start + 0.2, end));
-    }
-
-    prevEnd = end;
-    sequenced.push({
-      id: i,
-      start: Number(start.toFixed(2)),
-      end: Number(end.toFixed(2)),
-      text: item.text
-    });
-  }
-
-  // Ensure captions ending does not exceed video duration limit if known
-  if (Number.isFinite(limit) && limit > 0 && sequenced.length > 0) {
-    const last = sequenced[sequenced.length - 1];
-    if (last.end > limit) {
-      last.end = limit;
-      if (last.start >= limit - 0.1) {
-        last.start = Math.max(0, limit - 0.3);
-      }
-    }
-  }
-
-  return sequenced;
-}
-
 export const cleanSpokenReferenceScript = (raw: string): string => {
   if (!raw) return '';
   const lines = raw.split('\n');
@@ -1079,8 +964,9 @@ ${durationNotice}
    - הכתובית הראשונה מתחילה אך ורק כשהדובר פותח את פיו ומשמיע את ההברה הראשונה.
    - אם בשניות הראשונות (0 עד 1.5 שניות) יש שקט, הכתובית הראשונה תתחיל בדיוק כשנשמע הדיבור (לדוגמה 1.1s).
 3. משך זמן הגיוני לכל כתובית:
-   - כל כתובית צריכה להימשך בין 1.2 ל-3.0 שניות (בהתאם לאורך המשפט) כדי שתהיה קריאה וטבעית.
-   - אסור לייצר מקטעים זעירים של פחות מ-0.8 שניות שמהבהבים ונעלמים מייד.
+   - משך הכתובית נקבע רק לפי הדיבור בפועל; אין מינימום קבוע למשך מקטע.
+   - גם מקטע קצר מ-0.8 שניות תקין כאשר זה משך הדיבור. אל תאריך אותו ואל תדחוף את המקטעים הבאים.
+   - שתיקה נשארת שתיקה. אל תמלא אותה ואל תפרוס כתוביות עד סוף הסרטון.
 4. גודל מקטע טבעי והגיוני:
    - חלק למקטעים טבעיים של יחידות דיבור ומשמעות (Phrasing / Breath units - כ-3 עד 6 מילים למקטע).
 
@@ -1159,8 +1045,7 @@ ${cleanReference}
 
           try {
             const proofread = await proofreadHebrewCaptions(sanitized, cleanReference);
-            const finalCleaned = sanitizeAndSequenceCaptions(proofread, durationSeconds);
-            return splitLongCaptions(finalCleaned);
+            return splitLongCaptions(proofread);
           } catch {
             return splitLongCaptions(sanitized.map((item: CaptionItem) => ({ ...item, needsReview: true })));
           }
@@ -1247,20 +1132,15 @@ ${JSON.stringify(captions.map((c, i) => ({ id: c.id, start: c.start, end: c.end,
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(cleanJSON(rawText));
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Map each original caption safely to its corrected counterpart
-          const corrected = captions.map((original, idx) => {
-            const matched = parsed.find((p: any) => p && p.id === original.id) || parsed[idx];
-            const correctedText = matched && typeof matched.text === 'string' && matched.text.trim().length > 0
-              ? matched.text.trim()
-              : original.text;
-            return {
-              ...original,
-              text: correctedText,
-              needsReview: false
-            };
-          });
-          return corrected;
+        if (Array.isArray(parsed) && parsed.length === captions.length) {
+          const byId = new Map<number, { id: number; text: string }>();
+          for (const item of parsed) {
+            if (!item || typeof item.id !== 'number' || byId.has(item.id) || typeof item.text !== 'string' || !item.text.trim())
+              throw new Error('ההגהה החזירה מקטעים לא תקינים');
+            byId.set(item.id, item);
+          }
+          if (!captions.every(item => byId.has(item.id))) throw new Error('מזהי הכתוביות בהגהה אינם תואמים');
+          return captions.map(original => ({ ...original, text: byId.get(original.id)!.text.trim(), needsReview: false }));
         }
       }
     } catch (e: any) {
