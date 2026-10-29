@@ -1230,17 +1230,27 @@ export const quickTopicResearch = async (
 
 export const generateScriptWithBeats = async (
   idea: string, videoType: 'reel' | 'youtube', hookStyle: string,
-  inspiration = '', scientificSource = '',
+  inspiration = '', scientificSource = '', ctaKeyword = 'מצפן',
 ): Promise<{ fullScript: string; beats: ScriptBeat[] }> => {
   const source = scientificSourceDirection(hookStyle, scientificSource);
-  const prompt = `צור תסריט בחמש תחנות לקריאה רציפה בטלפרומפטר עבור יוסי ומצפן הלב.
+  const prompt = `צור תסריט ב-6 פעימות מדוברות (Spoken Viral 6-Beat Flow) לקריאה שוטפת בטלפרומפטר עבור יוסי ומצפן הלב.
 נושא: "${idea}"
+מילת מפתח להנעה לפעולה בתגובות: "${ctaKeyword || 'מדריך'}"
 ${getLegacyScriptDirection(hookStyle, videoType)}
-חומר השראה שנמסר (אינו בהכרח מקור מחקרי):
+חומר השראה / מקור שנמסר:
 ${inspiration}
 ${source}
 ${EDITOR_DIRECTION}
-שמור על סדר התחנות, המזהים והכותרות. החלף את ההוראה בשדה text בדיבור אמיתי שנובע מהנושא, בלי הוראות צילום או תוויות מערכת. דוגמאות המחשה אינן טענה לניסיון של יוסי.
+
+דגשים קריטיים:
+- פעימה 1 (הוק): עוצר גלילה, רגע מוחשי בלי שלום ובלי 'בסרטון הזה'.
+- פעימה 2 (גשר): מפרק אשמה ומחבר את ההורה.
+- פעימה 3 (הבחנה): רעיון אחד בלבד שמשנה תפיסה.
+- פעימה 4 (ריהוק): שבירת רצף ("אבל כאן רוב ההורים טועים...").
+- פעימה 5 (צעד מעשי): משפט ספציפי להגיד הערב בבית.
+- פעימה 6 (CTA): קריאה אחת בלבד להגיב בתגובות עם המילה "${ctaKeyword || 'מדריך'}" לקבלת המדריך ישירות.
+
+שמור במדויק על שמות השדות והמזהים. החלף את תוכן שדה text בטקסט המדובר בלבד.
 פלט JSON בלבד במבנה: ${JSON.stringify({ beats: getLegacyBeatSchema(hookStyle) })}`;
   return scriptResult(await callAi(prompt, true), hookStyle);
 };

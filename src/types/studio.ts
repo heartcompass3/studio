@@ -8,7 +8,7 @@ export interface CaptionItem {
 
 export interface ScriptBeat {
   id: string;
-  type: 'hook' | 'mirror' | 'internal' | 'reversal' | 'action';
+  type: 'hook' | 'mirror' | 'internal' | 'reversal' | 'action' | 'bridge' | 'insight' | 'rehook' | 'cta' | string;
   title: string;
   text: string;
   durationSec?: number;

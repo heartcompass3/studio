@@ -49,6 +49,7 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
   const [inspiration, setInspiration] = useState('');
   const [showInspiration, setShowInspiration] = useState(false);
   const [scientificSource, setScientificSource] = useState('');
+  const [ctaKeyword, setCtaKeyword] = useState('מצפן');
   const selectedArchetype = getLegacyArchetype(hookStyle);
   const [scriptStyle, setScriptStyle] = useState<string | undefined>();
   const activeScriptArchetype = getLegacyArchetype(scriptStyle || hookStyle);
@@ -163,7 +164,7 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
     setLoading(true);
     setDeepDiveResult(null);
     try {
-      const result = await generateScriptWithBeats(topicToUse, videoType, selectedStyle, inspiration, scientificSource);
+      const result = await generateScriptWithBeats(topicToUse, videoType, selectedStyle, inspiration, scientificSource, ctaKeyword);
       setBeats(result.beats);
         setScriptStyle(selectedStyle);
       onScriptChange(result.fullScript);
@@ -626,7 +627,26 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
             </div>
           )}
 
-          <button
+          
+          {/* CTA Lead Magnet Keyword Input */}
+          <div className="space-y-1.5 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60">
+            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-rose-400" />
+                <span>מילת מפתח להנעה לפעולה (Lead Magnet):</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">מילה שהצופה יכתוב בתגובות</span>
+            </label>
+            <input
+              type="text"
+              value={ctaKeyword}
+              onChange={(e) => setCtaKeyword(e.target.value)}
+              placeholder="למשל: מצפן, מדריך, סבלנות, תסריט"
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:border-indigo-500 outline-none"
+            />
+          </div>
+
+<button
             onClick={() => handleGenerateScript()}
             disabled={loading || (creationMode === 'idea' ? !idea.trim() : !rawText.trim())}
             className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 text-white rounded-xl font-bold text-sm shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
@@ -634,8 +654,8 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
             {loading ? <Loader className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
             <span>
               {loading 
-                ? (creationMode === 'raw_text' ? 'משכתב לתסריט מובנה...' : 'יוצר תסריט 5 תחנות ב-AI...') 
-                : (creationMode === 'raw_text' ? 'הפוך לתסריט סטודיו מובנה 🎬' : 'צור תסריט 5 תחנות מלא')}
+                ? (creationMode === 'raw_text' ? 'משכתב לתסריט מובנה...' : 'יוצר תסריט 6 פעימות ויראלי...') 
+                : (creationMode === 'raw_text' ? 'הפוך לתסריט סטודיו מובנה 🎬' : 'צור תסריט 6 פעימות ויראלי 🎬')}
             </span>
           </button>
         </div>
@@ -707,6 +727,20 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
               const isRefining = activeRefiningBeatId === beat.id;
               const isActionBeat = beat.title === activeScriptArchetype.stages[3].title || beat.title === 'בחירה שאפשר לבדוק' || (idx === beats.length - 1 && beat.title !== 'מה דורש תהליך');
 
+              const getBeatBadge = (beatType: string, idx: number) => {
+                switch (beatType) {
+                  case 'hook': return { label: '🪝 הוק עוצר גלילה', color: 'bg-rose-500/20 text-rose-300 border-rose-500/40' };
+                  case 'bridge': return { label: '🌉 גשר אמפתיה', color: 'bg-sky-500/20 text-sky-300 border-sky-500/40' };
+                  case 'insight': return { label: '💡 ההבחנה המרכזית', color: 'bg-amber-500/20 text-amber-300 border-amber-500/40' };
+                  case 'rehook': return { label: '⚡ ריהוק שומר קשב', color: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40' };
+                  case 'action': return { label: '🎯 צעד מעשי להיום', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' };
+                  case 'cta': return { label: '💬 הנעה לפעולה (לידים)', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' };
+                  default: return { label: `פעימה ${idx + 1}`, color: 'bg-slate-800 text-slate-300 border-slate-700' };
+                }
+              };
+              const badge = getBeatBadge(beat.type || beat.id, idx);
+
+
               return (
                 <div
                   key={beat.id}
@@ -714,8 +748,11 @@ export const ScriptEngine: React.FC<ScriptEngineProps> = ({
                 >
                   {/* Beat Header */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-xs text-indigo-300">
-                      <span>{beat.title}</span>
+                    <div className="flex items-center gap-2 font-bold text-xs">
+                      <span className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                      <span className="text-slate-300">{beat.title}</span>
                       <span className="text-[10px] text-slate-400 font-mono">
                         ({beatSec}s ~ {beatWords} מילים)
                       </span>
