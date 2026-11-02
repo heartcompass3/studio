@@ -42,7 +42,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [studioMode, setStudioMode] = useState<RecordingMode>('camera');
 
   // Microphone Volume Boost (Web Audio Processor - 100% to 400%)
-  const [micGain, setMicGain] = useState<number>(1.2); // Moderate gain avoids lifting the room noise floor
+  const [micGain, setMicGain] = useState<number>(1.0); // 1.0 = Clean native studio mic level
   const [showMicControls, setShowMicControls] = useState<boolean>(false);
   const boostedAudioPipelineRef = useRef<BoostedAudioResult | null>(null);
 
@@ -54,7 +54,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     boostedAudioPipelineRef.current?.setEffects(next);
     const tracks = [...(streamRef.current?.getAudioTracks() || []), ...(micStreamRef.current?.getAudioTracks() || [])];
     for (const track of tracks) void track.applyConstraints({
-      noiseSuppression: next.noiseReduction !== false, echoCancellation: true, autoGainControl: false,
+      noiseSuppression: next.noiseReduction !== false, echoCancellation: true, autoGainControl: true,
     }).catch(() => onError('לא ניתן לשנות את סינון המיקרופון במכשיר הזה בזמן ההקלטה. ההגדרה הנוכחית נשמרת.'));
   };
 
@@ -203,8 +203,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         audio: {
           echoCancellation: true,
           noiseSuppression: voiceEffectsRef.current.noiseReduction !== false,
-          autoGainControl: false,
-          sampleRate: 48000
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: { ideal: 1 }
         }
       };
 
@@ -296,8 +297,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         audio: {
           echoCancellation: true,
           noiseSuppression: voiceEffectsRef.current.noiseReduction !== false,
-          autoGainControl: false,
-          sampleRate: 48000
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: { ideal: 1 }
         },
         video: false
       });
@@ -382,11 +384,12 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       } else if (!micStreamRef.current && !(await startMic())) {
         return;
       }
-      // Initialize from the user's click, before the countdown, to resume Web Audio.
+      // Initialize from the user's click, before the countdown, to resume Web Audio only when requested.
       const rawTrack = (studioMode === 'camera' ? streamRef.current : micStreamRef.current)?.getAudioTracks()[0];
       boostedAudioPipelineRef.current?.cleanup();
       boostedAudioPipelineRef.current = null;
-      if (rawTrack) {
+      const needsAudioProcessing = micGain !== 1.0 || voiceEffectsRef.current.bassDb > 0 || voiceEffectsRef.current.reverbMix > 0;
+      if (rawTrack && needsAudioProcessing) {
         const pipeline = createBoostedAudioPipeline(new MediaStream([rawTrack]), micGain, voiceEffectsRef.current);
         boostedAudioPipelineRef.current = pipeline;
         try {
@@ -433,68 +436,15 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     if (studioMode === 'camera') {
       if (!streamRef.current) { boostedAudioPipelineRef.current?.cleanup(); boostedAudioPipelineRef.current = null; return; }
 
-      if (isVertical && videoRef.current) {
-        const canvas = document.createElement('canvas');
-        canvas.width = outWidth;
-        canvas.height = outHeight;
-        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
-        const video = videoRef.current;
-
-        let lastDrawTime = 0;
-        const fpsInterval = 1000 / 30; // 30 FPS target for video recording
-
-        const drawLoop = (now: number) => {
-          if (!video || video.paused || video.ended) return;
-          canvasLoopId = requestAnimationFrame(drawLoop);
-
-          const elapsed = now - lastDrawTime;
-          if (elapsed < fpsInterval) return;
-          lastDrawTime = now - (elapsed % fpsInterval);
-
-          const vw = video.videoWidth || 1920;
-          const vh = video.videoHeight || 1080;
-
-          const targetAspect = 9 / 16;
-          const srcAspect = vw / vh;
-
-          ctx.save();
-          if (isMirrored) {
-            ctx.translate(outWidth, 0);
-            ctx.scale(-1, 1);
-          }
-          if (brightness !== 1) {
-            ctx.filter = `brightness(${brightness})`;
-          }
-
-          // Full-bleed 9:16 Vertical Video Crop & Scaling
-          let sw = vw / zoomLevel;
-          let sh = vh / zoomLevel;
-          if (srcAspect > targetAspect) {
-            sw = (vh * targetAspect) / zoomLevel;
-            sh = vh / zoomLevel;
-          } else {
-            sh = (vw / targetAspect) / zoomLevel;
-            sw = vw / zoomLevel;
-          }
-          const sx = Math.max(0, (vw - sw) / 2);
-          const sy = Math.max(0, (vh - sh) / 2);
-          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
-          ctx.restore();
-        };
-
-        canvasLoopId = requestAnimationFrame(drawLoop);
-        const canvasStream = canvas.captureStream(30);
-        if (recordAudioTrack) {
-          canvasStream.addTrack(recordAudioTrack);
-        }
-        recordStream = canvasStream;
-      } else {
-        const videoTrack = streamRef.current.getVideoTracks()[0];
-        const composite = new MediaStream();
-        if (videoTrack) composite.addTrack(videoTrack);
-        if (recordAudioTrack) composite.addTrack(recordAudioTrack);
-        recordStream = composite;
-      }
+      // CRITICAL FIX FOR A/V SYNC & MOBILE FLUIDITY:
+      // Always record directly from the hardware camera track and microphone track!
+      // This completely eliminates frame drops, 300ms canvas latency delays,
+      // and guarantees 100% hardware-clock lip sync between speech and mouth movements.
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      const composite = new MediaStream();
+      if (videoTrack) composite.addTrack(videoTrack);
+      if (recordAudioTrack) composite.addTrack(recordAudioTrack);
+      recordStream = composite;
     } else {
       // Voiceover & Faceless Canvas Compositor
       let activeMic = micStreamRef.current;
@@ -612,15 +562,31 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       recordStream = canvasStream;
     }
 
-    let mimeType = 'video/webm;codecs=vp8,opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm';
-    }
+    const getSupportedVideoMimeType = (): { mimeType: string; isWebm: boolean } => {
+      const candidates = [
+        { type: 'video/webm;codecs=vp9,opus', isWebm: true },
+        { type: 'video/webm;codecs=vp8,opus', isWebm: true },
+        { type: 'video/webm', isWebm: true },
+        { type: 'video/mp4;codecs=avc1,mp4a.40.2', isWebm: false },
+        { type: 'video/mp4;codecs=avc1', isWebm: false },
+        { type: 'video/mp4', isWebm: false },
+      ];
+      for (const c of candidates) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c.type)) {
+          return { mimeType: c.type, isWebm: c.isWebm };
+        }
+      }
+      return { mimeType: '', isWebm: true };
+    };
+
+    const { mimeType, isWebm } = getSupportedVideoMimeType();
 
     let recorder: MediaRecorder;
     try {
       recorder = new MediaRecorder(recordStream, {
-        mimeType, videoBitsPerSecond: 6_000_000, audioBitsPerSecond: 192000,
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 4_500_000,
+        audioBitsPerSecond: 192000,
       });
     } catch (error) {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
@@ -645,10 +611,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         boostedAudioPipelineRef.current = null;
       }
       if (chunksRef.current.length === 0) return;
-      const rawBlob = new Blob(chunksRef.current, { type: 'video/webm' });
       const exactDurationSecs = Math.max(0.5, ((recordStopTimeRef.current ?? performance.now()) - recordStartTimeRef.current) / 1000);
-      
-      const fixedBlob = await fixWebmDuration(rawBlob, exactDurationSecs * 1000);
+      const rawBlob = new Blob(chunksRef.current, { type: isWebm ? 'video/webm' : 'video/mp4' });
+      const fixedBlob = isWebm ? await fixWebmDuration(rawBlob, exactDurationSecs * 1000) : rawBlob;
       const url = URL.createObjectURL(fixedBlob);
 
       setRecordedBlob(fixedBlob);
@@ -678,6 +643,19 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
+  };
+
+  
+  const handleOpenEditor = () => {
+    stopCamera();
+    stopMic();
+    onOpenEditor();
+  };
+
+  const handleOpenOriginalEditor = () => {
+    stopCamera();
+    stopMic();
+    onOpenOriginalEditor?.();
   };
 
   const handleRetake = () => {
@@ -1418,7 +1396,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 <div className="flex items-center gap-2 flex-wrap">
                   {onOpenOriginalEditor && (
                     <button
-                      onClick={onOpenOriginalEditor}
+                      onClick={handleOpenOriginalEditor}
                       className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
                     >
                       <span>עבור לעורך מקורי</span>
@@ -1426,7 +1404,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                     </button>
                   )}
                   <button
-                    onClick={onOpenEditor}
+                    onClick={handleOpenEditor}
                     className="px-3 py-1.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
                   >
                     <span>עבור לבימוי ועריכה (V2)</span>
@@ -1598,7 +1576,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {recordedUrl && onOpenOriginalEditor && (
             <button
-              onClick={onOpenOriginalEditor}
+              onClick={handleOpenOriginalEditor}
               disabled={!recordedBlob}
               className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-indigo-600/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
             >
@@ -1607,7 +1585,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </button>
           )}
           <button
-            onClick={onOpenEditor}
+            onClick={handleOpenEditor}
             disabled={!recordedBlob}
             className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-500/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
           >

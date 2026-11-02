@@ -30,11 +30,11 @@ export function createVoiceAudioGraph(
   const gain = context.createGain();
   gain.gain.value = clamp(initialGain, 0.5, 5);
   const speechCompressor = context.createDynamicsCompressor();
-  speechCompressor.threshold.value = -24;
-  speechCompressor.knee.value = 30;
-  speechCompressor.ratio.value = 4;
-  speechCompressor.attack.value = 0.003;
-  speechCompressor.release.value = 0.25;
+  speechCompressor.threshold.value = -18;
+  speechCompressor.knee.value = 12;
+  speechCompressor.ratio.value = 3;
+  speechCompressor.attack.value = 0.01;
+  speechCompressor.release.value = 0.2;
 
   const dry = context.createGain();
   const convolver = context.createConvolver();
@@ -58,11 +58,11 @@ export function createVoiceAudioGraph(
   convolver.buffer = impulse;
   // A limiter after dry/wet summation catches peaks added by bass and reverb.
   const limiter = context.createDynamicsCompressor();
-  limiter.threshold.value = -3;
-  limiter.knee.value = 0;
-  limiter.ratio.value = 20;
-  limiter.attack.value = 0.001;
-  limiter.release.value = 0.15;
+  limiter.threshold.value = -1.5;
+  limiter.knee.value = 8;
+  limiter.ratio.value = 5;
+  limiter.attack.value = 0.005;
+  limiter.release.value = 0.1;
 
   input.connect(highpass);
   highpass.connect(bass);

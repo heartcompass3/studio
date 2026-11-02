@@ -9,10 +9,10 @@ export class GentleNoiseGate {
     let peak = 0;
     for (const channel of input) for (const sample of channel) peak = Math.max(peak, Math.abs(sample));
     // -50 dBFS: quiet voice stays audible, low-level room noise fades between phrases.
-    const threshold = 0.00316227766;
-    if (peak >= threshold) this.hold = Math.round(this.rate * 0.12);
-    const target = !enabled || peak >= threshold || this.hold > 0 ? 1 : 0.12;
-    const coefficient = Math.exp(-1 / (this.rate * (target > this.level ? 0.003 : 0.18)));
+    const threshold = 0.004;
+    if (peak >= threshold) this.hold = Math.round(this.rate * 0.15);
+    const target = !enabled || peak >= threshold || this.hold > 0 ? 1 : 0.45;
+    const coefficient = Math.exp(-1 / (this.rate * (target > this.level ? 0.01 : 0.25)));
     for (let frame = 0; frame < frames; frame++) {
       this.level = target + coefficient * (this.level - target);
       for (let channel = 0; channel < output.length; channel++) {
