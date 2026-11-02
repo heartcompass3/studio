@@ -187,6 +187,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const targetCameraId = cameraIdOverride !== undefined ? cameraIdOverride : selectedCameraId;
 
       const videoConstraints: MediaTrackConstraints = {
+        aspectRatio: aspectRatio === '9:16' ? { ideal: 9 / 16 } : { ideal: 16 / 9 },
         width: { ideal: aspectRatio === '9:16' ? 1080 : 1920 },
         height: { ideal: aspectRatio === '9:16' ? 1920 : 1080 },
         frameRate: { ideal: 30, max: 60 }
@@ -851,6 +852,18 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </button>
           </div>
 
+            {aspectRatio === '9:16' && (
+              <button
+                onClick={() => setFramingMode(prev => prev === 'cover' ? 'wide' : 'cover')}
+                title={framingMode === 'cover' ? 'מצב צילום: מילוי 9:16 מלא (Reels Cover). לחץ למצב שוליים' : 'מצב צילום: שוליים (Wide). לחץ למילוי מלא'}
+                className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer transition-all ml-1"
+              >
+                <Scan className="w-3 h-3 text-indigo-400" />
+                <span className="hidden sm:inline">{framingMode === 'cover' ? 'מילוי מלא' : 'שוליים'}</span>
+              </button>
+            )}
+
+
           {studioMode === 'camera' && (
             <>
               {/* Mirror Camera */}
@@ -1419,7 +1432,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 controls
                 autoPlay
                 playsInline
-                className="w-full h-full object-contain"
+                className={`w-full h-full ${aspectRatio === '9:16' && framingMode === 'cover' ? 'object-cover' : 'object-contain'}`}
               />
             </div>
           )}

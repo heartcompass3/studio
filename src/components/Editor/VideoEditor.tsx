@@ -6,7 +6,7 @@ import {
   Sparkles, Sliders, Check, FileText, Palette, Clock,
   FastForward, Rewind, Zap, PlayCircle, Layers, MoveHorizontal, 
   Target, VolumeX, Volume2, Type, Sparkle, Smartphone, Monitor,
-  Image as ImageIcon, X, Upload, Eye, Music, Repeat2
+  Image as ImageIcon, X, Upload, Eye, Music, Repeat2, Scan
 } from 'lucide-react';
 import { CaptionTimeInput } from './CaptionTimeInput';
 import { updateCaptionTiming, shiftAllCaptionsList, captionIsActive } from '../../services/captionTiming';
@@ -52,6 +52,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
   const [exportAspectRatio, setExportAspectRatio] = useState<VideoAspectRatio>('9:16');
+  const [videoFitMode, setVideoFitMode] = useState<'cover' | 'contain'>('cover');
 
   // Trimming State
   const [trimStart, setTrimStart] = useState(0);
@@ -576,6 +577,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         contrast,
         subtitleStyle,
         exportAspectRatio,
+        videoFitMode,
         karaokeEnabled,
         headlineText,
         sourceVolume,
@@ -722,6 +724,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <span>🎬 מקורי</span>
           </button>
         </div>
+          {exportAspectRatio === '9:16' && (
+            <button
+              onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer transition-all ml-1.5"
+              title={videoFitMode === 'cover' ? 'מצב נוכחי: מילוי מסך מלא (Cover). לחץ להתאמת תמונה עם שוליים' : 'מצב נוכחי: התאמת שוליים (Letterbox). לחץ למילוי מסך מלא'}
+            >
+              <Scan className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{videoFitMode === 'cover' ? '📱 מילוי 9:16 מלא' : '🔍 התאמת שוליים'}</span>
+            </button>
+          )}
+
 
         {/* Action Export Buttons & Media Layer Drawer Trigger */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -836,7 +849,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     musicRef.current?.pause();
                   }}
                   style={{ filter: `brightness(${brightness}) contrast(${contrast})` }}
-                  className="w-full h-full object-contain"
+                  className={`w-full h-full transition-all duration-200 ${
+                    exportAspectRatio === '9:16' && videoFitMode === 'cover' ? 'object-cover' : 'object-contain'
+                  }`}
                 />
               ) : (
                 <div 

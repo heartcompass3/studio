@@ -6,6 +6,7 @@ import fixWebmDuration from 'fix-webm-duration';
 
 export interface RenderOptions {
   videoElement: HTMLVideoElement;
+  videoFitMode?: 'cover' | 'contain';
   videoBlob?: Blob | null;
   captions: CaptionItem[];
   visualOverlays?: VisualOverlayItem[];
@@ -399,7 +400,8 @@ export const renderStudioFrame = (
   headlineText: string,
   captions: CaptionItem[],
   subtitleStyle: SubtitleStyle,
-  karaokeEnabled: boolean
+  karaokeEnabled: boolean,
+  videoFitMode: 'cover' | 'contain' = 'cover'
 ) => {
   // 1. Draw video background / aspect ratio fitting
   if (isSourceVertical === isTargetVertical) {
@@ -412,34 +414,51 @@ export const renderStudioFrame = (
     ctx.filter = 'none';
   } else {
     // Cross-Format Conversion:
-    // Ambient background blit (instantaneous, no GPU slowdown)
-    ambientCtx.drawImage(videoElement, 0, 0, ambientCanvas.width, ambientCanvas.height);
-    ctx.drawImage(ambientCanvas, 0, 0, width, height);
-    ctx.fillStyle = 'rgba(10, 15, 30, 0.72)';
-    ctx.fillRect(0, 0, width, height);
-
     if (brightness !== 1 || contrast !== 1) {
       ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
     } else {
       ctx.filter = 'none';
     }
 
-    let fitW = width;
-    let fitH = height;
-    let fitX = 0;
-    let fitY = 0;
-
     if (isTargetVertical && !isSourceVertical) {
-      fitW = width;
-      fitH = (srcH / srcW) * width;
-      fitY = (height - fitH) / 2;
-    } else {
-      fitH = height;
-      fitW = (srcW / srcH) * height;
-      fitX = (width - fitW) / 2;
-    }
+      // 16:9 source to 9:16 target (Reels / Stories)
+      if (videoFitMode === 'contain') {
+        // Ambient background letterboxing
+        ambientCtx.drawImage(videoElement, 0, 0, ambientCanvas.width, ambientCanvas.height);
+        ctx.drawImage(ambientCanvas, 0, 0, width, height);
+        ctx.fillStyle = 'rgba(10, 15, 30, 0.72)';
+        ctx.fillRect(0, 0, width, height);
 
-    ctx.drawImage(videoElement, fitX, fitY, fitW, fitH);
+        const fitW = width;
+        const fitH = (srcH / srcW) * width;
+        const fitY = (height - fitH) / 2;
+        ctx.drawImage(videoElement, 0, fitY, fitW, fitH);
+      } else {
+        // Full-bleed 9:16 vertical cover (Standard Reels full-height fill)
+        const targetAspect = 9 / 16;
+        const sw = srcH * targetAspect;
+        const sx = Math.max(0, (srcW - sw) / 2);
+        ctx.drawImage(videoElement, sx, 0, sw, srcH, 0, 0, width, height);
+      }
+    } else {
+      // 9:16 source to 16:9 target (YouTube)
+      if (videoFitMode === 'cover') {
+        const targetAspect = 16 / 9;
+        const sh = srcW / targetAspect;
+        const sy = Math.max(0, (srcH - sh) / 2);
+        ctx.drawImage(videoElement, 0, sy, srcW, sh, 0, 0, width, height);
+      } else {
+        ambientCtx.drawImage(videoElement, 0, 0, ambientCanvas.width, ambientCanvas.height);
+        ctx.drawImage(ambientCanvas, 0, 0, width, height);
+        ctx.fillStyle = 'rgba(10, 15, 30, 0.72)';
+        ctx.fillRect(0, 0, width, height);
+
+        const fitH = height;
+        const fitW = (srcW / srcH) * height;
+        const fitX = (width - fitW) / 2;
+        ctx.drawImage(videoElement, fitX, 0, fitW, fitH);
+      }
+    }
     ctx.filter = 'none';
   }
 
@@ -809,7 +828,8 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
           headlineText,
           captions,
           subtitleStyle,
-          karaokeEnabled
+          karaokeEnabled,
+          options.videoFitMode || 'cover'
         );
 
         let timestampUs = Math.round((mediaTime - trimStart) * 1_000_000);
@@ -1224,7 +1244,8 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
           headlineText,
           captions,
           subtitleStyle,
-          karaokeEnabled
+          karaokeEnabled,
+          options.videoFitMode || 'cover'
         );
 
         animationId = requestAnimationFrame(renderLoop);
