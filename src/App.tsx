@@ -47,7 +47,11 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white"
+      className={`bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white ${
+        activeTab === "studio" || activeTab === "editor" || activeTab === "editor-v2"
+          ? "h-[100dvh] max-h-[100dvh] overflow-hidden"
+          : "min-h-screen"
+      }`}
       dir="rtl"
     >
       {/* Global Error Alert Toast */}
@@ -69,8 +73,8 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className={`flex-1 w-full mx-auto ${
         activeTab === "studio" || activeTab === "editor" || activeTab === "editor-v2"
-          ? 'p-0 pb-0 max-w-full h-[calc(100dvh-64px)] overflow-hidden flex flex-col'
-          : 'max-w-[1560px] p-4 md:p-6 pb-20'
+          ? "p-0 pb-0 max-w-full flex-1 min-h-0 overflow-hidden flex flex-col"
+          : "max-w-[1560px] p-4 md:p-6 pb-20 overflow-y-auto"
       }`}>
         <div hidden={activeTab !== "creative-v2"}>
           <CreativeV2
@@ -111,7 +115,7 @@ export const App: React.FC = () => {
           <RecordingStudio
             scriptText={currentScript}
             onVideoRecorded={handleVideoRecorded}
-            onOpenEditor={() => setActiveTab("editor-v2")}
+            onOpenEditor={() => setActiveTab("editor")}
             onOpenOriginalEditor={() => setActiveTab("editor")}
             onError={triggerError}
           />

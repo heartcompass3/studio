@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { Eye, Sparkles, Mic, Gauge, Play, Pause, RotateCcw } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 export interface TeleprompterProps {
   text: string;
@@ -31,10 +31,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   isCameraActive,
   isMirrored = false,
   eyeContactAnchor = false,
-  voiceTrackEnabled = false,
-  audioStream = null,
   restartSignal = 0,
-  onToggleVoiceTrack,
   onToggleScroll,
   onRestart,
   onSpeedChange,
@@ -47,17 +44,10 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   const animFrameRef = useRef<number | null>(null);
 
   // High-precision timeline tracking
+  const startTimeRef = useRef<number | null>(null);
+  const startOffsetRef = useRef<number>(0);
   const currentOffsetRef = useRef<number>(0);
   const speedRef = useRef(scrollSpeed);
-  const isScrollingRef = useRef(isScrolling);
-  const voiceTrackRef = useRef(voiceTrackEnabled);
-
-  // Web Audio VAD Analyser Refs
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const lastSpokenTimestampRef = useRef<number>(0);
-  const lastFrameTimeRef = useRef<number | null>(null);
 
   // Mobile Touch Gestures
   const touchStartYRef = useRef<number | null>(null);
@@ -65,26 +55,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
 
   const [offsetY, setOffsetY] = useState(0);
   const [maxScroll, setMaxScroll] = useState(1000);
-  const [showFocusGuide, setShowFocusGuide] = useState(true);
   const [hasEnded, setHasEnded] = useState(false);
-  const [voiceSyncActive, setVoiceSyncActive] = useState(voiceTrackEnabled);
-  const [isSpeakingLive, setIsSpeakingLive] = useState(false);
-
-  useEffect(() => {
-    speedRef.current = scrollSpeed;
-  }, [scrollSpeed]);
-
-  useEffect(() => {
-    isScrollingRef.current = isScrolling;
-  }, [isScrolling]);
-
-  useEffect(() => {
-    voiceTrackRef.current = voiceSyncActive;
-  }, [voiceSyncActive]);
-
-  useEffect(() => {
-    setVoiceSyncActive(voiceTrackEnabled);
-  }, [voiceTrackEnabled]);
 
   // Calculate word count & estimated duration
   const wordCount = useMemo(() => {
@@ -101,16 +72,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       .filter(p => p.length > 0);
   }, [text]);
 
-  // WPM (Words Per Minute) calculation
-  const currentWpm = useMemo(() => {
-    return Math.round(scrollSpeed * 65);
-  }, [scrollSpeed]);
-
-  const totalEstimatedSec = useMemo(() => {
-    if (wordCount === 0 || currentWpm === 0) return 0;
-    return Math.round((wordCount / currentWpm) * 60);
-  }, [wordCount, currentWpm]);
-
   // Update max scroll bounds
   const updateBounds = useCallback(() => {
     if (contentRef.current && containerRef.current) {
@@ -124,6 +85,15 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   }, []);
 
   useEffect(() => {
+    speedRef.current = scrollSpeed;
+    if (isScrolling) {
+      // Re-anchor timeline when speed changes mid-scroll
+      startTimeRef.current = performance.now();
+      startOffsetRef.current = currentOffsetRef.current;
+    }
+  }, [scrollSpeed, isScrolling]);
+
+  useEffect(() => {
     const timer = setTimeout(updateBounds, 100);
     window.addEventListener('resize', updateBounds);
     return () => {
@@ -132,142 +102,46 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     };
   }, [text, fontSize, updateBounds]);
 
-  // Setup Web Audio VAD Analyser with guaranteed resume
+  // Core Rock-Solid Constant-Velocity GPU Animation Engine (No mic interference)
   useEffect(() => {
-    if (!audioStream) {
-      if (audioCtxRef.current) {
-        try { audioSourceRef.current?.disconnect(); } catch {}
-        try { audioCtxRef.current.close(); } catch {}
-        audioCtxRef.current = null;
-        analyserRef.current = null;
-      }
-      return;
-    }
+    const scrollStep = (now: number) => {
+      if (!isScrolling) return;
 
-    const audioTrack = audioStream.getAudioTracks()[0];
-    if (!audioTrack) return;
-
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-
-      const ctx = new AudioCtx();
-      const resumeCtx = () => {
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
-        }
-      };
-      resumeCtx();
-      window.addEventListener('click', resumeCtx, { once: true });
-      window.addEventListener('touchstart', resumeCtx, { once: true });
-
-      const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.2;
-      source.connect(analyser);
-
-      audioCtxRef.current = ctx;
-      analyserRef.current = analyser;
-      audioSourceRef.current = source;
-    } catch (err) {
-      console.warn('Teleprompter audio init note:', err);
-    }
-
-    return () => {
-      try { audioSourceRef.current?.disconnect(); } catch {}
-      try { audioCtxRef.current?.close(); } catch {}
-      audioCtxRef.current = null;
-      analyserRef.current = null;
-    };
-  }, [audioStream]);
-
-  // Core Rock-Solid Continuous & Voice Scroll Engine
-  useEffect(() => {
-    const timeData = new Uint8Array(128);
-
-    const scrollLoop = (now: number) => {
-      if (!isScrollingRef.current) return;
-
-      if (lastFrameTimeRef.current === null) {
-        lastFrameTimeRef.current = now;
+      if (startTimeRef.current === null) {
+        startTimeRef.current = now;
       }
 
-      const deltaSec = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000);
-      lastFrameTimeRef.current = now;
+      const elapsedSec = (now - startTimeRef.current) / 1000;
+      // Linear velocity: 1.0x speed = 28px/second
+      const pps = Math.max(0.1, speedRef.current) * 28;
+      const targetOffset = startOffsetRef.current + elapsedSec * pps;
 
-      let speedFactor = 1.0;
-
-      if (voiceTrackRef.current && analyserRef.current) {
-        // Measure real speech activity using time-domain amplitude excursion
-        analyserRef.current.getByteTimeDomainData(timeData);
-        let maxDev = 0;
-        for (let i = 0; i < timeData.length; i++) {
-          const dev = Math.abs(timeData[i] - 128);
-          if (dev > maxDev) maxDev = dev;
-        }
-
-        const isSpeaking = maxDev > 12;
-        if (isSpeaking) {
-          lastSpokenTimestampRef.current = now;
-          setIsSpeakingLive(true);
-          speedFactor = 1.0;
-        } else {
-          setIsSpeakingLive(false);
-          const silenceDuration = now - lastSpokenTimestampRef.current;
-          if (silenceDuration < 700) {
-            // Natural pause between words in sentence: keep smooth momentum
-            speedFactor = 0.85;
-          } else if (silenceDuration > 3200) {
-            // Safety cruise control: slowly continue so creator is NEVER frozen
-            speedFactor = 0.65;
-          } else {
-            // Deliberate pause: hold place
-            speedFactor = 0.0;
-          }
-        }
+      if (targetOffset <= maxScroll) {
+        currentOffsetRef.current = targetOffset;
+        setOffsetY(targetOffset);
+        animFrameRef.current = requestAnimationFrame(scrollStep);
       } else {
-        // Constant dependable scroll
-        speedFactor = 1.0;
-        setIsSpeakingLive(false);
-      }
-
-      if (speedFactor > 0) {
-        // Linear velocity: 1.0x speed = 28px/second
-        const pps = Math.max(0.2, speedRef.current) * 28 * speedFactor;
-        const targetOffset = currentOffsetRef.current + deltaSec * pps;
-
-        if (targetOffset <= maxScroll) {
-          currentOffsetRef.current = targetOffset;
-          setOffsetY(targetOffset);
-          animFrameRef.current = requestAnimationFrame(scrollLoop);
-        } else {
-          // Reached end of script
-          currentOffsetRef.current = maxScroll;
-          setOffsetY(maxScroll);
-          setHasEnded(true);
-          lastFrameTimeRef.current = null;
-          if (onToggleScroll) onToggleScroll();
-          if (onScriptComplete) onScriptComplete();
-        }
-      } else {
-        // Paused on silence: keep frame loop running waiting for voice
-        animFrameRef.current = requestAnimationFrame(scrollLoop);
+        // Reached end of script
+        currentOffsetRef.current = maxScroll;
+        setOffsetY(maxScroll);
+        setHasEnded(true);
+        if (onToggleScroll) onToggleScroll();
+        if (onScriptComplete) onScriptComplete();
+        startTimeRef.current = null;
       }
     };
 
     if (isScrolling) {
       setHasEnded(false);
-      lastFrameTimeRef.current = performance.now();
-      lastSpokenTimestampRef.current = performance.now();
-      animFrameRef.current = requestAnimationFrame(scrollLoop);
+      startTimeRef.current = performance.now();
+      startOffsetRef.current = currentOffsetRef.current;
+      animFrameRef.current = requestAnimationFrame(scrollStep);
     } else {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
       }
-      lastFrameTimeRef.current = null;
-      setIsSpeakingLive(false);
+      startTimeRef.current = null;
     }
 
     return () => {
@@ -278,86 +152,83 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     };
   }, [isScrolling, maxScroll, onToggleScroll, onScriptComplete]);
 
-  // Reset offset on new text or restart
+  // Reset offset on restartSignal
   useEffect(() => {
-    currentOffsetRef.current = 0;
-    lastFrameTimeRef.current = null;
-    lastSpokenTimestampRef.current = performance.now();
-    setOffsetY(0);
-    setHasEnded(false);
-    updateBounds();
-  }, [text, restartSignal, updateBounds]);
+    if (restartSignal > 0) {
+      currentOffsetRef.current = 0;
+      startOffsetRef.current = 0;
+      startTimeRef.current = performance.now();
+      setOffsetY(0);
+      setHasEnded(false);
+    }
+  }, [restartSignal]);
 
   const handleRestart = useCallback(() => {
     currentOffsetRef.current = 0;
-    lastFrameTimeRef.current = null;
-    lastSpokenTimestampRef.current = performance.now();
+    startOffsetRef.current = 0;
     setOffsetY(0);
     setHasEnded(false);
+    startTimeRef.current = isScrolling ? performance.now() : null;
     if (onRestart) onRestart();
-  }, [onRestart]);
+  }, [isScrolling, onRestart]);
 
-  // Manual wheel scroll handler
+  // Manual scrubbing / touch gestures
   const handleWheel = (e: React.WheelEvent) => {
     const delta = e.deltaY;
-    const newOffset = Math.max(0, Math.min(maxScroll, currentOffsetRef.current + delta));
-    currentOffsetRef.current = newOffset;
-    lastFrameTimeRef.current = performance.now();
-    setOffsetY(newOffset);
+    const nextOffset = Math.max(0, Math.min(maxScroll, currentOffsetRef.current + delta * 0.5));
+    currentOffsetRef.current = nextOffset;
+    startOffsetRef.current = nextOffset;
+    startTimeRef.current = performance.now();
+    setOffsetY(nextOffset);
   };
 
-  // Mobile Touch Swipe Handlers
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      touchStartYRef.current = e.touches[0].clientY;
-      touchStartOffsetRef.current = currentOffsetRef.current;
-    }
+    touchStartYRef.current = e.touches[0].clientY;
+    touchStartOffsetRef.current = currentOffsetRef.current;
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartYRef.current !== null && e.touches.length === 1) {
-      const deltaY = touchStartYRef.current - e.touches[0].clientY;
-      const newOffset = Math.max(0, Math.min(maxScroll, touchStartOffsetRef.current + deltaY));
-      currentOffsetRef.current = newOffset;
-      lastFrameTimeRef.current = performance.now();
-      setOffsetY(newOffset);
-    }
+    if (touchStartYRef.current === null) return;
+    const deltaY = touchStartYRef.current - e.touches[0].clientY;
+    const nextOffset = Math.max(0, Math.min(maxScroll, touchStartOffsetRef.current + deltaY));
+    currentOffsetRef.current = nextOffset;
+    startOffsetRef.current = nextOffset;
+    startTimeRef.current = performance.now();
+    setOffsetY(nextOffset);
   };
 
   const handleTouchEnd = () => {
     touchStartYRef.current = null;
   };
 
-  // Jump to specific paragraph on click
-  const handleParagraphClick = (idx: number, e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    if (target && containerRef.current) {
-      const targetTop = target.offsetTop;
-      const viewportHeight = containerRef.current.offsetHeight;
-      const newOffset = Math.max(0, Math.min(maxScroll, targetTop - viewportHeight * 0.35));
-      currentOffsetRef.current = newOffset;
-      lastFrameTimeRef.current = performance.now();
-      lastSpokenTimestampRef.current = performance.now();
-      setOffsetY(newOffset);
+  const handleParagraphClick = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!contentRef.current) return;
+    const pElements = contentRef.current.children;
+    if (pElements[index]) {
+      const el = pElements[index] as HTMLElement;
+      const target = Math.max(0, Math.min(maxScroll, el.offsetTop - 120));
+      currentOffsetRef.current = target;
+      startOffsetRef.current = target;
+      startTimeRef.current = performance.now();
+      setOffsetY(target);
     }
   };
 
-  // Keyboard Shortcuts (Space, Arrows, R)
+  // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
-        return;
-      }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.code === 'Space') {
         e.preventDefault();
         if (onToggleScroll) onToggleScroll();
-      } else if (e.code === 'ArrowUp') {
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        if (onSpeedChange) onSpeedChange(Math.min(6, Number((speedRef.current + 0.25).toFixed(2))));
-      } else if (e.code === 'ArrowDown') {
+        if (onSpeedChange) onSpeedChange(Math.min(3.0, Number((speedRef.current + 0.1).toFixed(2))));
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (onSpeedChange) onSpeedChange(Math.max(0.25, Number((speedRef.current - 0.25).toFixed(2))));
+        if (onSpeedChange) onSpeedChange(Math.max(0.3, Number((speedRef.current - 0.1).toFixed(2))));
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         handleRestart();
@@ -367,16 +238,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onToggleScroll, onSpeedChange, handleRestart]);
-
-  // Progress calculations
-  const progressPercent = maxScroll > 0 ? Math.min(100, Math.round((offsetY / maxScroll) * 100)) : 0;
-  const elapsedSecEstimated = totalEstimatedSec > 0 ? Math.round((progressPercent / 100) * totalEstimatedSec) : 0;
-
-  const formatTime = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
 
   if (!text) {
     return (
@@ -389,52 +250,11 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   return (
     <div className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden">
       
-      {/* Eye-Level Reading Focus Guide + Controls */}
-      {showFocusGuide && (
-        <div className={`absolute ${eyeContactAnchor ? 'top-[16%]' : 'top-[35%]'} left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-3 sm:px-6 transition-all duration-300 ${eyeContactAnchor ? 'opacity-95' : 'opacity-85'}`}>
-          <div className="flex items-center gap-2">
-            <div className={`h-[2px] w-8 sm:w-14 bg-gradient-to-r from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80'}`} />
-            <div className={`px-2 py-0.5 rounded-full border text-[10px] font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 ${eyeContactAnchor ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300' : 'bg-amber-500/20 border-amber-400/40 text-amber-300'}`}>
-              <Eye className={`w-3 h-3 ${eyeContactAnchor ? 'text-cyan-300' : 'text-amber-400'}`} />
-              <span>{eyeContactAnchor ? '🎯 עוגן עדשה' : 'גובה קריאה'}</span>
-            </div>
-          </div>
-
-          {/* Mode Selector Pill: Constant Speed vs Voice Follow */}
-          <div className="pointer-events-auto flex items-center bg-black/60 backdrop-blur-md border border-white/20 rounded-full p-0.5 shadow-xl">
-            <button
-              onClick={() => {
-                setVoiceSyncActive(false);
-                if (onToggleVoiceTrack) onToggleVoiceTrack(false);
-              }}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                !voiceSyncActive ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Gauge className="w-3 h-3" />
-              <span>קצב קבוע ({scrollSpeed}x)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setVoiceSyncActive(true);
-                if (onToggleVoiceTrack) onToggleVoiceTrack(true);
-              }}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                voiceSyncActive ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Mic className="w-3 h-3" />
-              <span>{isSpeakingLive ? '🟢 שומע דיבור' : 'עוקב קול'}</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-slate-400/80 bg-black/50 px-2 py-0.5 rounded-full">
-              {formatTime(elapsedSecEstimated)}/{formatTime(totalEstimatedSec)}
-            </span>
-            <div className={`h-[2px] w-8 sm:w-14 bg-gradient-to-l from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80'}`} />
-          </div>
+      {/* Subtle edge guides only if eye-contact anchor is explicitly enabled (no intrusive badges in text center) */}
+      {eyeContactAnchor && (
+        <div className="absolute top-[20%] left-0 right-0 z-25 pointer-events-none flex items-center justify-between px-2 sm:px-4 opacity-40">
+          <div className="h-[2px] w-6 sm:w-10 bg-gradient-to-r from-transparent to-cyan-400" />
+          <div className="h-[2px] w-6 sm:w-10 bg-gradient-to-l from-transparent to-cyan-400" />
         </div>
       )}
 
@@ -458,7 +278,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
             transform: `translate3d(0, -${offsetY}px, 0)`,
             willChange: 'transform',
             fontSize: `${fontSize}px`,
-            paddingTop: eyeContactAnchor ? '16vh' : '35vh',
+            paddingTop: eyeContactAnchor ? '18vh' : '30vh',
             paddingBottom: '85vh',
             textShadow: isCameraActive
               ? '0 2px 4px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.8)'
@@ -484,7 +304,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
               <p className="text-sm font-bold text-emerald-300">סיום התסריט! צילום מעולה 🎉</p>
               <button
                 onClick={handleRestart}
-                className="mt-3 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-all"
+                className="mt-3 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-all cursor-pointer"
               >
                 חזור להתחלה (R)
               </button>

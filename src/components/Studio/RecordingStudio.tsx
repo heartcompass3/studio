@@ -73,7 +73,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [showZoomBar, setShowZoomBar] = useState(false);
   const [hardwareZoomSupported, setHardwareZoomSupported] = useState(false);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1.0, max: 3.0, step: 0.1 });
-  const [eyeContactAnchor, setEyeContactAnchor] = useState<boolean>(true);
+  const [eyeContactAnchor, setEyeContactAnchor] = useState<boolean>(false);
 
   // Voiceover / Faceless B-Roll & Slideshow State
   const [bgSourceType, setBgSourceType] = useState<BackgroundSourceType>('gradient');
@@ -91,12 +91,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   // Immersive TikTok/Reels Floating HUD Controls
   const [isUiHidden, setIsUiHidden] = useState(false);
   const [activeStudioDrawer, setActiveStudioDrawer] = useState<"none" | "prompter" | "audio" | "lighting" | "takes" | "broll">("none");
-
-  // Next-Gen Controls: Clapper Beeps, Countdown, Hands-Free Trigger, Voice Tracking
+  // Controls: Countdown & Prompter Settings
   const [countdownDuration, setCountdownDuration] = useState<number>(3); // 0, 3, 5, 10
-  const [clapTriggerActive, setClapTriggerActive] = useState<boolean>(false);
   const [voiceTrackMode, setVoiceTrackMode] = useState<boolean>(false);
-  const clapDetectorRef = useRef<{ cleanup: () => void } | null>(null);
 
   const playStudioBeep = (frequency: number, durationMs: number) => {
     try {
@@ -107,7 +104,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(frequency, ctx.currentTime);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -237,10 +234,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         video: videoConstraints,
         audio: {
           echoCancellation: true,
-          noiseSuppression: false,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: { ideal: 1 }
+          noiseSuppression: true,
+          autoGainControl: true
         }
       };
 
@@ -331,10 +326,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
-          noiseSuppression: false,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: { ideal: 1 }
+          noiseSuppression: true,
+          autoGainControl: true
         },
         video: false
       });
@@ -736,112 +729,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     }
   };
 
-  // High-Precision Acoustic Transient Clap Detector
-  useEffect(() => {
-    if (!clapTriggerActive || countdown !== null || recordedUrl) {
-      if (clapDetectorRef.current) {
-        clapDetectorRef.current.cleanup();
-        clapDetectorRef.current = null;
-      }
-      return;
-    }
-
-    const stream = studioMode === 'camera' ? streamRef.current : micStreamRef.current;
-    if (!stream) return;
-    const audioTrack = stream.getAudioTracks()[0];
-    if (!audioTrack) return;
-
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-
-      // Ensure AudioContext is resumed immediately and on interaction
-      const resumeContext = () => {
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
-        }
-      };
-      resumeContext();
-      window.addEventListener('click', resumeContext, { once: true });
-      window.addEventListener('touchstart', resumeContext, { once: true });
-
-      const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.1;
-      source.connect(analyser);
-
-      let isDestroyed = false;
-      let animId: number;
-      let prevPeak = 0;
-      let cooldownUntil = 0;
-      let firstClapTime = 0;
-      const timeData = new Uint8Array(analyser.frequencyBinCount);
-
-      const checkClapTransient = () => {
-        if (isDestroyed) return;
-        analyser.getByteTimeDomainData(timeData);
-
-        // Find max peak deviation from center value (128)
-        let peak = 0;
-        for (let i = 0; i < timeData.length; i++) {
-          const dev = Math.abs(timeData[i] - 128);
-          if (dev > peak) peak = dev;
-        }
-
-        const now = performance.now();
-        // A clap is a sharp transient spike: peak >= 34 and sharp rise from previous frame
-        const isClapSpike = peak >= 34 && (peak - prevPeak) >= 16;
-
-        if (isClapSpike && now > cooldownUntil) {
-          if (isRecording) {
-            // Double clap within 1.2s triggers stop
-            if (firstClapTime === 0 || (now - firstClapTime) > 1200) {
-              firstClapTime = now;
-              playStudioBeep(660, 70); // Feedback chirp for clap #1
-            } else if ((now - firstClapTime) >= 180 && (now - firstClapTime) <= 1200) {
-              firstClapTime = 0;
-              cooldownUntil = now + 1500;
-              playStudioBeep(880, 160); // Confirmation beep
-              handleStopRecording(0.7); // Auto-trim 0.7s so clap is cut out
-            }
-          } else {
-            // Before recording: single clap triggers countdown and recording
-            cooldownUntil = now + 2500;
-            playStudioBeep(880, 180);
-            handleStartRecording();
-          }
-        }
-
-        prevPeak = peak;
-        animId = requestAnimationFrame(checkClapTransient);
-      };
-
-      animId = requestAnimationFrame(checkClapTransient);
-
-      clapDetectorRef.current = {
-        cleanup: () => {
-          isDestroyed = true;
-          cancelAnimationFrame(animId);
-          window.removeEventListener('click', resumeContext);
-          window.removeEventListener('touchstart', resumeContext);
-          try { source.disconnect(); } catch {}
-          try { ctx.close(); } catch {}
-        }
-      };
-    } catch (err) {
-      console.warn('Clap detector error:', err);
-    }
-
-    return () => {
-      if (clapDetectorRef.current) {
-        clapDetectorRef.current.cleanup();
-        clapDetectorRef.current = null;
-      }
-    };
-  }, [clapTriggerActive, isRecording, countdown, recordedUrl, studioMode, isCameraActive, micStream]);
-
   const handleTeleprompterScriptComplete = () => {
     if (isRecording) {
       setTimeout(() => {
@@ -958,7 +845,10 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             muted
             style={{
               filter: `brightness(${brightness})`,
-              transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`
+              transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`,
+              objectFit: 'cover',
+              objectPosition: 'center center',
+              direction: 'ltr'
             }}
             className={`w-full h-full object-cover transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
           />
@@ -966,15 +856,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
         {/* Eye-Contact Lens Target Overlay */}
         {studioMode === 'camera' && isCameraActive && !recordedUrl && eyeContactAnchor && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center animate-in fade-in duration-300">
-            <div className="relative flex items-center justify-center">
-              <div className="absolute w-7 h-7 rounded-full bg-cyan-400/25 animate-ping duration-1000" />
-              <div className="w-4 h-4 rounded-full border-2 border-cyan-400 bg-slate-950/90 shadow-[0_0_12px_rgba(34,211,238,0.9)] flex items-center justify-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
-              </div>
-            </div>
-            <div className="mt-1 px-2.5 py-0.5 rounded-full bg-slate-950/85 border border-cyan-500/50 text-[10px] font-black text-cyan-300 shadow-xl backdrop-blur-md flex items-center gap-1">
-              <span>👀 הבט כאן לעדשה ⬆️</span>
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center opacity-80 animate-in fade-in">
+            <div className="px-2.5 py-0.5 rounded-full bg-slate-950/85 border border-cyan-500/50 text-[10px] font-bold text-cyan-300 shadow-xl backdrop-blur-md">
+              <span>👀 עדשת מצלמה</span>
             </div>
           </div>
         )}
@@ -1041,14 +925,19 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
         {/* Recorded Video Playback Review */}
         {recordedUrl && (
-          <div className="w-full h-full relative flex items-center justify-center bg-black">
+          <div className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden">
             <video
               ref={previewVideoRef}
               src={recordedUrl}
               controls
               autoPlay
               playsInline
-              className={`w-full h-full ${aspectRatio === '9:16' && framingMode === 'cover' ? 'object-cover' : 'object-contain'}`}
+              style={{
+                objectFit: 'contain',
+                objectPosition: 'center center',
+                direction: 'ltr'
+              }}
+              className="w-full h-full object-contain mx-auto block max-h-full max-w-full"
             />
           </div>
         )}
@@ -1090,11 +979,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               </span>
             </div>
 
-            {clapTriggerActive && (
-              <span className="hidden sm:inline-block text-[11px] text-amber-200/90 font-bold bg-black/60 backdrop-blur px-3 py-1 rounded-full border border-amber-400/30">
-                👏 מחיאה כפולה לסיום
-              </span>
-            )}
+            
 
             <button
               onClick={() => handleStopRecording()}
@@ -1225,17 +1110,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             <span>{countdownDuration === 0 ? '0' : `${countdownDuration}s`}</span>
           </button>
 
-          {/* Clap Trigger Toggle */}
-          <button
-            onClick={() => setClapTriggerActive(prev => !prev)}
-            title="צילום ללא מגע: מחיאה אחת להתחלה, מחיאה כפולה / אמירת 'סטופ' לסיום"
-            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-              clapTriggerActive ? 'bg-amber-500/30 border-amber-400 text-amber-200 animate-pulse' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-            }`}
-          >
-            <Clapperboard className="w-3.5 h-3.5 text-amber-300" />
-            <span>מחיאה</span>
-          </button>
+          
 
           {/* Mic Sound / Audio Effects Drawer */}
           <button
@@ -1472,7 +1347,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         )}
 
         {/* 5. FLOATING BOTTOM GLASS SHUTTER BAR - ANCHORED INSIDE STAGE */}
-        <div className={`absolute bottom-4 inset-x-3 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+        <div className={`absolute bottom-6 sm:bottom-8 inset-x-3 sm:inset-x-6 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 pb-[env(safe-area-inset-bottom,0px)] ${
           isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}>
           {/* Left: Takes Tray or Retake */}
@@ -1529,7 +1404,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                   onClick={handleOpenEditor}
                   className="px-5 py-2.5 bg-gradient-to-r from-teal-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white font-black text-xs sm:text-sm rounded-full shadow-2xl shadow-teal-500/30 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border border-teal-400/40"
                 >
-                  <span>עבור לעריכה</span>
+                  <span>עבור לעריכה וכתוביות</span>
                   <ArrowLeft className="w-4 h-4" />
                 </button>
               </div>
