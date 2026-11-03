@@ -68,6 +68,8 @@ export const App: React.FC = () => {
         {/* STEP 1: Unified Creative & Viral Script Engine */}
         <div hidden={activeTab !== "creative-v2"}>
           <CreativeV2
+            currentScript={currentScript}
+            onScriptChange={setCurrentScript}
             onError={triggerError}
             onUseScript={(script, title) => {
               setCurrentScript(script);
@@ -85,6 +87,7 @@ export const App: React.FC = () => {
         {activeTab === "studio" && (
           <RecordingStudio
             scriptText={currentScript}
+            onScriptChange={setCurrentScript}
             onVideoRecorded={handleVideoRecorded}
             onOpenEditor={() => setActiveTab("editor")}
             onError={triggerError}
@@ -92,7 +95,7 @@ export const App: React.FC = () => {
         )}
 
         {/* STEP 3: Unified Pro Video Editor with Karaoke Subtitles */}
-        <div hidden={activeTab !== "editor"}>
+        <div hidden={activeTab !== "editor"} className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden">
           <VideoEditor
             active={activeTab === "editor"}
             videoBlob={videoBlob}

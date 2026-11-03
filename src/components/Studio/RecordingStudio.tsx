@@ -6,7 +6,7 @@ import {
   FlipHorizontal, Eye, ZoomIn, ZoomOut, Image as ImageIcon,
   Sparkles, Upload, Sun, Check, Sparkle, ArrowLeft, ArrowRight,
   Gauge, Type, Video, Layers, Palette, Plus, Trash2, Music,
-  RefreshCw, Scan, X, Star, Clapperboard, Timer
+  RefreshCw, Scan, X, Star, Clapperboard, Timer, Copy, Clipboard
 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 import { Teleprompter } from './Teleprompter';
@@ -18,6 +18,7 @@ import { VoiceAudioEffects, VOICE_AUDIO_PRESETS } from '../../services/meditatio
 
 interface RecordingStudioProps {
   scriptText: string;
+  onScriptChange?: (script: string) => void;
   onVideoRecorded: (blob: Blob, url: string, duration?: number) => void;
   onOpenEditor: () => void;
   onOpenOriginalEditor?: () => void;
@@ -33,11 +34,21 @@ const PRESET_GRADIENTS = [
 
 export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   scriptText,
+  onScriptChange,
   onVideoRecorded,
   onOpenEditor,
   onOpenOriginalEditor,
   onError
 }) => {
+  const [liveScript, setLiveScript] = useState(scriptText);
+  useEffect(() => {
+    setLiveScript(scriptText);
+  }, [scriptText]);
+
+  const handleUpdateScript = (newScript: string) => {
+    setLiveScript(newScript);
+    if (onScriptChange) onScriptChange(newScript);
+  };
   // Studio Mode: Camera Video OR Voiceover & B-Roll / Slideshow
   const [studioMode, setStudioMode] = useState<RecordingMode>('camera');
 
@@ -216,12 +227,20 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const targetFacing = facingOverride || facingMode;
       const targetCameraId = cameraIdOverride !== undefined ? cameraIdOverride : selectedCameraId;
 
-      const videoConstraints: MediaTrackConstraints = {
-        aspectRatio: aspectRatio === '9:16' ? { ideal: 9 / 16 } : { ideal: 16 / 9 },
-        width: { ideal: aspectRatio === '9:16' ? 1080 : 1920 },
-        height: { ideal: aspectRatio === '9:16' ? 1920 : 1080 },
-        frameRate: { ideal: 30, max: 60 }
-      };
+      const isVertical = aspectRatio === '9:16';
+      const videoConstraints: MediaTrackConstraints = isVertical
+        ? {
+            aspectRatio: { ideal: 9 / 16, max: 1.0 },
+            width: { ideal: 1080, max: 1080 },
+            height: { ideal: 1920, min: 720 },
+            frameRate: { ideal: 30, max: 60 }
+          }
+        : {
+            aspectRatio: { ideal: 16 / 9, min: 1.0 },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 60 }
+          };
 
       if (targetCameraId) {
         videoConstraints.deviceId = { exact: targetCameraId };
@@ -240,7 +259,20 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         }
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr) {
+        // Fallback for mobile browsers with strict constraint support
+        const fallbackConstraints: MediaStreamConstraints = {
+          video: {
+            facingMode: targetFacing,
+            aspectRatio: isVertical ? (9 / 16) : (16 / 9)
+          },
+          audio: constraints.audio
+        };
+        stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+      }
       streamRef.current = stream;
 
       const videoTrack = stream.getVideoTracks()[0];
@@ -454,12 +486,81 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     let canvasLoopId: number | null = null;
 
     const rawAudioTrack = (studioMode === 'camera' ? streamRef.current : micStreamRef.current)?.getAudioTracks()[0];
-    const recordAudioTrack = rawAudioTrack;
+    let studioAudioCtx: AudioContext | null = null;
+    let boostedAudioTrack: MediaStreamTrack | null = null;
+
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const sourceStream = studioMode === 'camera' ? streamRef.current : micStreamRef.current;
+      if (AudioCtxClass && sourceStream && sourceStream.getAudioTracks().length > 0) {
+        studioAudioCtx = new AudioCtxClass();
+        const aSource = studioAudioCtx.createMediaStreamSource(sourceStream);
+        const gainNode = studioAudioCtx.createGain();
+        gainNode.gain.value = Math.max(1.3, micGain * 1.8);
+
+        const compressor = studioAudioCtx.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-18, studioAudioCtx.currentTime);
+        compressor.ratio.setValueAtTime(4, studioAudioCtx.currentTime);
+
+        const destNode = studioAudioCtx.createMediaStreamDestination();
+        aSource.connect(gainNode);
+        gainNode.connect(compressor);
+        compressor.connect(destNode);
+
+        boostedAudioTrack = destNode.stream.getAudioTracks()[0];
+      }
+    } catch (audioErr) {
+      console.warn('Audio booster note:', audioErr);
+    }
+
+    const recordAudioTrack = boostedAudioTrack || rawAudioTrack;
+
+    const vTrack = streamRef.current?.getVideoTracks()[0];
+    const vSettings = vTrack?.getSettings();
+    const isCameraLandscape = !!(vSettings && vSettings.width && vSettings.height && vSettings.width > vSettings.height);
 
     if (studioMode === 'camera') {
       if (!streamRef.current) { return; }
-      // Use direct hardware stream: completely eliminates audio buffer underruns, clicks, and drift
-      recordStream = streamRef.current;
+
+      if (isVertical && isCameraLandscape && videoRef.current) {
+        // Hardware sensor gave landscape, crop center 9:16 to canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = 1080;
+        canvas.height = 1920;
+        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
+        const v = videoRef.current;
+
+        const drawCropLoop = () => {
+          canvasLoopId = requestAnimationFrame(drawCropLoop);
+          if (v.videoWidth && v.videoHeight) {
+            const targetAspect = 1080 / 1920;
+            const srcAspect = v.videoWidth / v.videoHeight;
+            let sx = 0, sy = 0, sw = v.videoWidth, sh = v.videoHeight;
+            if (srcAspect > targetAspect) {
+              sw = v.videoHeight * targetAspect;
+              sx = (v.videoWidth - sw) / 2;
+            } else {
+              sh = v.videoWidth / targetAspect;
+              sy = (v.videoHeight - sh) / 2;
+            }
+            ctx.save();
+            if (isMirrored) {
+              ctx.translate(1080, 0);
+              ctx.scale(-1, 1);
+            }
+            ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 1080, 1920);
+            ctx.restore();
+          }
+        };
+        canvasLoopId = requestAnimationFrame(drawCropLoop);
+        const canvasStream = canvas.captureStream(30);
+        if (recordAudioTrack) canvasStream.addTrack(recordAudioTrack);
+        recordStream = canvasStream;
+      } else {
+        // Direct stream with boosted audio track
+        const vTrk = streamRef.current.getVideoTracks()[0];
+        recordStream = new MediaStream([vTrk, ...(recordAudioTrack ? [recordAudioTrack] : [])]);
+      }
     } else {
       // Voiceover & Faceless Canvas Compositor
       let activeMic = micStreamRef.current;
@@ -620,6 +721,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
     recorder.onstop = async () => {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
+      if (studioAudioCtx) { studioAudioCtx.close().catch(() => {}); }
       if (bgVideoRef.current) bgVideoRef.current.pause();
       if (false) {
 
@@ -801,8 +903,20 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         id="studio-stage"
         style={
           aspectRatio === '9:16'
-            ? { aspectRatio: '9 / 16', height: '100%', width: 'auto', maxHeight: '100%', maxWidth: '100%' }
-            : { aspectRatio: '16 / 9', width: '100%', height: 'auto', maxHeight: '100%', maxWidth: '1200px' }
+            ? {
+                aspectRatio: '9 / 16',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'min(100%, calc(100dvh * 9 / 16))',
+                height: 'min(100%, calc(100vw * 16 / 9))',
+              }
+            : {
+                aspectRatio: '16 / 9',
+                maxWidth: '1200px',
+                maxHeight: '100%',
+                width: 'min(100%, calc(100dvh * 16 / 9))',
+                height: 'auto',
+              }
         }
         className="relative flex items-center justify-center bg-black overflow-hidden transition-all duration-300 sm:rounded-3xl sm:border sm:border-slate-800/80 sm:shadow-[0_0_60px_rgba(0,0,0,0.85)]"
         onClick={(e) => {
@@ -934,11 +1048,11 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 }
               }}
               style={{
-                objectFit: 'contain',
+                objectFit: aspectRatio === '9:16' ? 'cover' : 'contain',
                 objectPosition: 'center center',
                 direction: 'ltr'
               }}
-              className="w-full h-full object-contain mx-auto block max-h-full max-w-full"
+              className="w-full h-full object-cover mx-auto block max-h-full max-w-full"
             />
           </div>
         )}
@@ -947,7 +1061,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         {((studioMode === 'camera' && isCameraActive) || (studioMode === 'voiceover')) && !recordedUrl && (
           <div className="absolute inset-0 pointer-events-auto z-10">
             <Teleprompter
-              text={scriptText || 'כתוב או צור תסריט בלשונית מחולל התסריטים כדי להציג אותו כאן בזמן אמת...'}
+              text={liveScript}
               isScrolling={isScrolling}
               scrollSpeed={scrollSpeed}
               fontSize={fontSize}
@@ -962,6 +1076,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               onToggleScroll={() => setIsScrolling(prev => !prev)}
               onRestart={() => setIsScrolling(true)}
               onScriptComplete={handleTeleprompterScriptComplete}
+              onPasteScript={handleUpdateScript}
+              onOpenPrompterDrawer={() => setActiveStudioDrawer('prompter')}
             />
           </div>
         )}
@@ -1020,17 +1136,22 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </button>
           </div>
 
-          {/* Center: Status / Timer Pill */}
+          {/* Center: Status / Timer Pill & Prompter Script Toggle */}
           {isRecording ? (
             <div className="flex items-center gap-2 px-3 py-1 bg-rose-600/80 backdrop-blur-md border border-rose-400/50 rounded-full text-white text-xs font-bold shadow-lg shadow-rose-600/40 animate-pulse">
               <span className="w-2 h-2 rounded-full bg-white animate-ping" />
               <span>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
             </div>
           ) : (
-            <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 bg-black/50 backdrop-blur-md border border-white/10 rounded-full text-slate-300 text-[11px] font-bold">
+            <button
+              onClick={() => setActiveStudioDrawer(prev => prev === 'prompter' ? 'none' : 'prompter')}
+              className="flex items-center gap-1.5 px-3 py-1 bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 rounded-full text-slate-200 hover:text-white text-[11px] font-bold active:scale-95 transition-all cursor-pointer shadow-lg"
+              title="ערוך או הדבק תסריט לפרומפטר"
+            >
               <span>📜</span>
-              <span>{scriptText ? `${scriptText.trim().split(/\s+/).filter(Boolean).length} מילים` : 'אולפן'}</span>
-            </div>
+              <span>{liveScript ? `${liveScript.trim().split(/\s+/).filter(Boolean).length} מילים` : 'הדבק תסריט'}</span>
+              <span className="text-[10px] text-indigo-300">✏️</span>
+            </button>
           )}
 
           {/* Right: Clean View Toggle */}
@@ -1176,6 +1297,57 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             {/* Prompter Drawer Content */}
             {activeStudioDrawer === 'prompter' && (
               <div className="space-y-3.5">
+                {/* Direct Script Editor & Paste inside Prompter Drawer */}
+                <div className="p-2.5 rounded-2xl bg-black/40 border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-indigo-300 flex items-center gap-1">
+                      📜 טקסט הטלפרומפטר
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText();
+                            if (text && text.trim()) handleUpdateScript(text);
+                          } catch {
+                            onError("לא ניתן לגשת ללוח ההעתקה בדפדפן");
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer active:scale-95 transition-all"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>הדבק מהלוח</span>
+                      </button>
+                      {liveScript && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateScript('')}
+                          className="px-1.5 py-0.5 rounded-lg bg-white/10 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold cursor-pointer"
+                          title="נקה טקסט"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={liveScript}
+                    onChange={(e) => handleUpdateScript(e.target.value)}
+                    placeholder="הדבק או הקלד כאן את התסריט שיופיע בטלפרומפטר..."
+                    className="w-full bg-slate-950/80 border border-white/15 rounded-xl p-2 text-xs text-white leading-relaxed resize-none focus:outline-none focus:border-indigo-400 font-sans"
+                  />
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>
+                      {liveScript ? `${liveScript.trim().split(/\s+/).filter(Boolean).length} מילים` : 'ריק'}
+                    </span>
+                    <span>
+                      {liveScript ? `כ־${Math.round(liveScript.trim().split(/\s+/).filter(Boolean).length / 2.25)} שניות` : ''}
+                    </span>
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex justify-between text-slate-300 mb-1">
                     <span>מהירות גלילה:</span>

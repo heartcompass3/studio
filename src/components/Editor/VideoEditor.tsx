@@ -112,10 +112,68 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStatusText, setExportStatusText] = useState('');
 
-  // Refs
+  // Refs & Web Audio Playback Booster (Mobile-safe amplifier)
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const sourceConnectedRef = useRef<boolean>(false);
+
+  const ensureAudioBooster = () => {
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtxClass) return;
+
+      if (!audioCtxRef.current) {
+        const ctx = new AudioCtxClass();
+        const gain = ctx.createGain();
+        gain.gain.value = isMuted ? 0 : Math.max(1.0, sourceVolume * 1.8);
+
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.setValueAtTime(-14, ctx.currentTime);
+        comp.knee.setValueAtTime(8, ctx.currentTime);
+        comp.ratio.setValueAtTime(3.5, ctx.currentTime);
+        comp.attack.setValueAtTime(0.003, ctx.currentTime);
+        comp.release.setValueAtTime(0.2, ctx.currentTime);
+
+        if (!sourceConnectedRef.current && videoRef.current) {
+          try {
+            const src = ctx.createMediaElementSource(videoRef.current);
+            src.connect(gain);
+            gain.connect(comp);
+            comp.connect(ctx.destination);
+            sourceConnectedRef.current = true;
+          } catch (srcErr) {
+            console.warn('createMediaElementSource note:', srcErr);
+          }
+        }
+        audioCtxRef.current = ctx;
+        gainNodeRef.current = gain;
+      }
+
+      if (audioCtxRef.current?.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Audio booster init warning:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (gainNodeRef.current && audioCtxRef.current) {
+      try {
+        gainNodeRef.current.gain.setValueAtTime(
+          isMuted ? 0 : Math.max(0, sourceVolume * 1.8),
+          audioCtxRef.current.currentTime
+        );
+      } catch {}
+    }
+    if (videoRef.current) {
+      videoRef.current.muted = sourceConnectedRef.current ? false : isMuted;
+      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
+    }
+  }, [sourceVolume, isMuted]);
 
   const editedDuration = Math.max(0, (trimEnd || duration) - trimStart);
 
@@ -288,8 +346,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
-    videoRef.current.muted = isMuted;
-    videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
+    ensureAudioBooster();
+    videoRef.current.muted = sourceConnectedRef.current ? false : isMuted;
+    videoRef.current.volume = isMuted ? 0 : 1.0;
     const dur = videoRef.current.duration;
     if (videoRef.current.videoWidth && videoRef.current.videoHeight) {
       setVideoDimensions({
@@ -330,10 +389,19 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const toggleMute = (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    ensureAudioBooster();
     setIsMuted(prev => {
       const next = !prev;
+      if (gainNodeRef.current && audioCtxRef.current) {
+        try {
+          gainNodeRef.current.gain.setValueAtTime(
+            next ? 0 : Math.max(1.0, sourceVolume * 1.8),
+            audioCtxRef.current.currentTime
+          );
+        } catch {}
+      }
       if (videoRef.current) {
-        videoRef.current.muted = next;
+        videoRef.current.muted = sourceConnectedRef.current ? false : next;
         videoRef.current.volume = next ? 0 : Math.min(1, Math.max(0, sourceVolume));
       }
       if (musicRef.current) {
@@ -346,6 +414,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const togglePlay = () => {
     if (!videoRef.current) return;
+    ensureAudioBooster();
     if (isPlaying) {
       videoRef.current.pause();
       musicRef.current?.pause();
@@ -359,7 +428,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       if (videoRef.current.muted && !isMuted) {
         videoRef.current.muted = false;
       }
-      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
+      videoRef.current.volume = isMuted ? 0 : 1.0;
       videoRef.current.play().then(() => {
         setIsPlaying(true);
         syncMusicPreview(true);
@@ -735,10 +804,28 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         id="editor-stage"
         style={
           exportAspectRatio === '9:16'
-            ? { aspectRatio: '9 / 16', height: '100%', width: 'auto', maxHeight: '100%', maxWidth: '100%' }
+            ? {
+                aspectRatio: '9 / 16',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'min(100%, calc(100dvh * 9 / 16))',
+                height: 'min(100%, calc(100vw * 16 / 9))',
+              }
             : exportAspectRatio === '16:9'
-              ? { aspectRatio: '16 / 9', width: '100%', height: 'auto', maxHeight: '100%', maxWidth: '1200px' }
-              : { aspectRatio: frameAspectRatio, height: isPortrait ? '100%' : 'auto', width: isPortrait ? 'auto' : '100%', maxHeight: '100%', maxWidth: '100%' }
+              ? {
+                  aspectRatio: '16 / 9',
+                  maxWidth: '1200px',
+                  maxHeight: '100%',
+                  width: 'min(100%, calc(100dvh * 16 / 9))',
+                  height: 'auto',
+                }
+              : {
+                  aspectRatio: frameAspectRatio,
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: isPortrait ? 'min(100%, calc(100dvh * 9 / 16))' : '100%',
+                  height: isPortrait ? 'min(100%, calc(100vw * 16 / 9))' : 'auto',
+                }
         }
         className="relative flex items-center justify-center bg-black overflow-hidden transition-all duration-300 sm:rounded-3xl sm:border sm:border-slate-800/80 sm:shadow-[0_0_60px_rgba(0,0,0,0.85)]"
         onClick={(e) => {
@@ -763,6 +850,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             onTimeUpdate={handleTimeUpdate}
             onPlay={() => {
               if (isExporting) return;
+              ensureAudioBooster();
               setIsPlaying(true);
               syncMusicPreview(true);
               musicRef.current?.play().catch(() => undefined);
@@ -1616,7 +1704,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     <input
                       type="range"
                       min="0"
-                      max="1.5"
+                      max="2.5"
                       step="0.05"
                       value={sourceVolume}
                       onChange={(e) => setSourceVolume(Number(e.target.value))}

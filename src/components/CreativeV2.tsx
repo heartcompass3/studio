@@ -7,6 +7,11 @@ import {
   Download,
   Check,
   Loader,
+  Clipboard,
+  FileText,
+  Trash2,
+  Send,
+  Wand2,
 } from "lucide-react";
 import {
   archetypes,
@@ -34,11 +39,62 @@ export function CreativeV2({
   onUseScript,
   onError,
   onUseCover,
+  currentScript,
+  onScriptChange,
 }: {
   onUseScript: (script: string, coverTitle?: string) => void;
   onError: (s: string) => void;
   onUseCover: (title: string) => void;
+  currentScript?: string;
+  onScriptChange?: (script: string) => void;
 }) {
+  const [inputMode, setInputMode] = useState<"ai" | "paste">("ai");
+  const [pastedScript, setPastedScript] = useState<string>(currentScript || "");
+
+  useEffect(() => {
+    if (currentScript && !pastedScript) {
+      setPastedScript(currentScript);
+    }
+  }, [currentScript]);
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        setPastedScript(text);
+        if (onScriptChange) onScriptChange(text);
+      } else {
+        onError("לוח ההעתקה ריק");
+      }
+    } catch {
+      onError("לא ניתן לגשת ללוח ההעתקה בדפדפן. הדבק ישירות לתוך תיבת הטקסט");
+    }
+  };
+
+  const handleUsePastedScript = () => {
+    if (!pastedScript.trim()) {
+      onError("אנא הדבק או הקלד תסריט לפני השליחה לאולפן");
+      return;
+    }
+    if (onScriptChange) onScriptChange(pastedScript);
+    const firstLine = pastedScript.trim().split("\n")[0].slice(0, 35);
+    onUseScript(pastedScript, firstLine);
+  };
+
+  const handleUpgradePastedWithAI = () => {
+    if (!pastedScript.trim()) {
+      onError("אנא הדבק תסריט לשדרוג");
+      return;
+    }
+    setBrief((prev) => ({
+      ...prev,
+      topic: pastedScript,
+    }));
+    setInputMode("ai");
+  };
+
+  const pastedWordCount = pastedScript.trim().split(/\s+/).filter(Boolean).length;
+  const pastedEstSeconds = Math.round(pastedWordCount / 2.25);
   const [brief, setBrief] = useState<CreativeBrief>({
     topic: "",
     audience: "הורים למתבגרים",
@@ -246,7 +302,111 @@ export function CreativeV2({
           פתח תסריט לדוגמה
         </button>
       </div>
+      {/* Mode Switcher: AI Generator vs Direct Script Paste */}
+      <div className="flex items-center gap-2 mb-4 bg-slate-900/90 p-1.5 rounded-2xl border border-white/10 w-fit">
+        <button
+          onClick={() => setInputMode("ai")}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            inputMode === "ai"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Sparkles size={15} />
+          <span>מחולל AI (הוקים ופעימות)</span>
+        </button>
+        <button
+          onClick={() => setInputMode("paste")}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            inputMode === "paste"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Clipboard size={15} />
+          <span>הדבקת תסריט קיים</span>
+          {pastedScript.trim() && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          )}
+        </button>
+      </div>
+
       <div className="sv-creative-grid">
+        {inputMode === "paste" ? (
+          <section className="sv-panel sv-brief">
+            <div className="sv-panel-title">
+              <Clipboard size={17} />
+              הדבקת תסריט קיים לצילום
+            </div>
+            <p className="sv-hint mb-3">
+              יש לך כבר תסריט מוכן? הדבק אותו כאן, צפה בזמן הדיבור המשוער ושלח אותו ישירות לטלפרומפטר באולפן ההקלטות.
+            </p>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-300">טקסט התסריט</span>
+              <button
+                type="button"
+                onClick={handlePasteFromClipboard}
+                className="sv-button sv-rewrite-button text-xs text-indigo-300 flex items-center gap-1 cursor-pointer"
+              >
+                <Clipboard size={14} />
+                <span>הדבק מהלוח</span>
+              </button>
+            </div>
+            <label className="sv-field">
+              <textarea
+                aria-label="טקסט התסריט"
+                rows={10}
+                value={pastedScript}
+                placeholder="הדבק כאן את התסריט שכתבת (מוורד, גוגל דוקס, וואטסאפ או פתקים)..."
+                onChange={(e) => {
+                  setPastedScript(e.target.value);
+                  if (onScriptChange) onScriptChange(e.target.value);
+                }}
+                className="w-full font-sans text-sm leading-relaxed"
+              />
+            </label>
+            <div className="p-3 my-3 rounded-xl bg-slate-950/60 border border-white/10 flex items-center justify-between text-xs">
+              <span className="text-slate-300">
+                📊 {pastedWordCount} מילים
+              </span>
+              <span className="font-bold text-indigo-400">
+                ⏱️ כ־{pastedEstSeconds} שניות דיבור
+              </span>
+            </div>
+            <div className="flex flex-col gap-2 mt-4">
+              <button
+                className="sv-primary sv-wide flex items-center justify-center gap-2"
+                onClick={handleUsePastedScript}
+                disabled={!pastedScript.trim()}
+              >
+                <Send size={16} />
+                <span>🚀 שלח ישירות לאולפן ההקלטות (לטלפרומפטר)</span>
+              </button>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  className="sv-button flex-1"
+                  onClick={handleUpgradePastedWithAI}
+                  disabled={!pastedScript.trim()}
+                >
+                  <Wand2 size={14} />
+                  <span>שדרג ל־3 הוקים עם AI</span>
+                </button>
+                {pastedScript.trim() && (
+                  <button
+                    className="sv-button text-rose-400 hover:text-rose-300"
+                    onClick={() => {
+                      setPastedScript("");
+                      if (onScriptChange) onScriptChange("");
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    <span>נקה</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        ) : (
         <section className="sv-panel sv-brief">
           <div className="sv-panel-title">
             <Clapperboard size={17} />
@@ -446,6 +606,7 @@ export function CreativeV2({
             יצירת AI משתמשת במפתח ובמודל שבחרת בהגדרות. הטיוטה נשמרת בדפדפן.
           </p>
         </section>
+        )}
         <section className="sv-creative-results">
           {!pack ? (
             <div className="sv-panel sv-creative-empty">
@@ -460,6 +621,35 @@ export function CreativeV2({
                   ? describeArchetypeStructure(selectedArchetype?.id || "contradiction", brief.duration)
                   : ["פתיחה", "סצנה", "העמקה", "עדשת מצפן הלב", "יישום", "סגירה"]
                 ).map((stage) => <span key={stage}>{stage}</span>)}
+              </div>
+
+              {/* Quick direct paste invite card */}
+              <div className="mt-8 p-6 rounded-2xl bg-slate-900/90 border border-white/15 max-w-md w-full text-center shadow-2xl animate-in fade-in">
+                <div className="w-12 h-12 rounded-full bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-300 mx-auto mb-3 text-xl shadow-lg">
+                  📋
+                </div>
+                <h3 className="text-white font-bold text-sm mb-1.5">יש לך כבר תסריט מוכן?</h3>
+                <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                  אפשר לדלג על מחולל ה-AI ולהדביק את התסריט שלך ישירות לטלפרומפטר באולפן ההקלטות.
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    className="sv-primary"
+                    onClick={() => {
+                      setInputMode("paste");
+                      handlePasteFromClipboard();
+                    }}
+                  >
+                    <Clipboard size={15} />
+                    <span>הדבק מהלוח עכשיו</span>
+                  </button>
+                  <button
+                    className="sv-button"
+                    onClick={() => setInputMode("paste")}
+                  >
+                    <span>עבור למצב הדבקה</span>
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -619,7 +809,24 @@ export function CreativeV2({
                   </>
                 ) : (
                   <label className="sv-field sv-full-script">
-                    טקסט מלא לעריכה, הקלטה והעתקה
+                    <div className="flex items-center justify-between mb-1">
+                      <span>טקסט מלא לעריכה, הקלטה והעתקה</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText();
+                            if (text && text.trim()) setFullScriptOverride(text);
+                          } catch {
+                            onError("לא ניתן לגשת ללוח ההעתקה בדפדפן");
+                          }
+                        }}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-bold cursor-pointer"
+                      >
+                        <Clipboard size={13} />
+                        <span>הדבק מהלוח לטקסט המלא</span>
+                      </button>
+                    </div>
                     <textarea
                       aria-label="טקסט מלא"
                       value={script}

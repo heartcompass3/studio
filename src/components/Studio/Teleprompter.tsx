@@ -20,6 +20,8 @@ export interface TeleprompterProps {
   onFontSizeChange?: (size: number) => void;
   onOpacityChange?: (opacity: number) => void;
   onScriptComplete?: () => void;
+  onPasteScript?: (text: string) => void;
+  onOpenPrompterDrawer?: () => void;
 }
 
 export const Teleprompter: React.FC<TeleprompterProps> = ({
@@ -37,7 +39,9 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   onSpeedChange,
   onFontSizeChange,
   onOpacityChange,
-  onScriptComplete
+  onScriptComplete,
+  onPasteScript,
+  onOpenPrompterDrawer
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -241,8 +245,47 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
 
   if (!text) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-slate-500 z-10 pointer-events-none select-none">
-        <p className="max-w-md text-sm">הטלפרומפטר ריק. צור תסריט בלשונית "מחולל תסריטים" כדי להציגו כאן.</p>
+      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-30 pointer-events-auto select-none">
+        <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/20 p-5 sm:p-6 rounded-3xl shadow-2xl max-w-sm flex flex-col items-center gap-3 animate-in fade-in zoom-in-95">
+          <div className="w-12 h-12 rounded-full bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-300 text-xl shadow-lg">
+            📜
+          </div>
+          <div className="text-white font-bold text-sm sm:text-base">
+            הטלפרומפטר מוכן לתסריט שלך
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed max-w-xs">
+            הדבק טקסט שכתבת מראש או הקלד כמה שורות כדי לצלם בקלות עם קריאה מהמסך.
+          </p>
+          <div className="flex items-center gap-2 mt-1 w-full justify-center">
+            {onPasteScript && (
+              <button
+                onClick={async () => {
+                  try {
+                    const cb = await navigator.clipboard.readText();
+                    if (cb && cb.trim()) {
+                      onPasteScript(cb);
+                    } else {
+                      onOpenPrompterDrawer?.();
+                    }
+                  } catch {
+                    onOpenPrompterDrawer?.();
+                  }
+                }}
+                className="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xl active:scale-95 transition-all cursor-pointer"
+              >
+                <span>📋 הדבק מהלוח</span>
+              </button>
+            )}
+            {onOpenPrompterDrawer && (
+              <button
+                onClick={onOpenPrompterDrawer}
+                className="px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 font-bold text-xs flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>✏️ כתוב תסריט</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

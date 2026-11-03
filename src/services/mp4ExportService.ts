@@ -658,7 +658,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
         const sourceNode = offlineCtx.createBufferSource();
         sourceNode.buffer = rawDecoded;
         const sourceGain = offlineCtx.createGain();
-        sourceGain.gain.value = Math.max(0, Math.min(1.5, sourceVolume));
+        sourceGain.gain.value = Math.max(0, Math.min(2.5, sourceVolume * 1.5));
         sourceNode.connect(sourceGain).connect(offlineCtx.destination);
         sourceNode.start(0, trimStart, duration);
 
@@ -1065,7 +1065,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
               const sourceStream = new MediaStream([sourceAudioTracks[0]]);
               const sourceNode = exportAudioContext.createMediaStreamSource(sourceStream);
               const sourceGain = exportAudioContext.createGain();
-              sourceGain.gain.value = Math.max(0, Math.min(1.5, sourceVolume));
+              sourceGain.gain.value = Math.max(0, Math.min(2.5, sourceVolume * 1.5));
               sourceNode.connect(sourceGain).connect(masterGain);
             }
 
