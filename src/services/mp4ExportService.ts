@@ -535,10 +535,22 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   height = height % 2 === 0 ? height : height - 1;
 
   const fps = 30;
-  const targetEndTime = Math.max(trimStart + 0.3, trimEnd);
+  const maxVideoDuration = (Number.isFinite(videoElement.duration) && videoElement.duration > 0)
+    ? videoElement.duration
+    : Infinity;
+  const safeTrimEnd = Math.min(trimEnd, maxVideoDuration);
+  const targetEndTime = Math.max(trimStart + 0.3, safeTrimEnd);
   const duration = Math.max(0.3, targetEndTime - trimStart);
 
   onProgress(2, 'מחלץ רצועות וידאו ואודיו לקידוד MP4 סופי...');
+
+  // Keep screen awake during export on mobile/laptops
+  let wakeLock: any = null;
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await (navigator as any).wakeLock.request('screen');
+    }
+  } catch {}
 
   // 1. Extract and process audio data cleanly via OfflineAudioContext
   let audioBuffer: AudioBuffer | null = null;
@@ -659,9 +671,13 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     firstTimestampBehavior: 'offset'
   });
 
+  let encoderError: Error | null = null;
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-    error: (e) => console.error('VideoEncoder error:', e)
+    error: (e) => {
+      console.error('VideoEncoder error:', e);
+      encoderError = e;
+    }
   });
 
   const candidateCodecs = ['avc1.640028', 'avc1.4d002a', 'avc1.42001f'];
@@ -690,197 +706,163 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     framerate: fps
   });
 
-  // 5. Encode Audio (AAC) immediately into Muxer
-  if (hasAudio && audioBuffer) {
-    onProgress(4, 'מקודד רצועת שמע AAC צלולה ב-48kHz...');
-    const audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-      error: (e) => console.error('AudioEncoder error:', e)
-    });
-
-    audioEncoder.configure({
-      codec: 'mp4a.40.2',
-      numberOfChannels: audioBuffer.numberOfChannels,
-      sampleRate: audioBuffer.sampleRate,
-      bitrate: 192_000
-    });
-
-    const totalSamples = audioBuffer.length;
-    const chunkSize = 1024;
-    const numChannels = audioBuffer.numberOfChannels;
-
-    for (let offset = 0; offset < totalSamples; offset += chunkSize) {
-      const currentChunkSize = Math.min(chunkSize, totalSamples - offset);
-      const audioDataPlanar = new Float32Array(chunkSize * numChannels);
-
-      for (let ch = 0; ch < numChannels; ch++) {
-        const channelData = audioBuffer.getChannelData(ch);
-        const sub = channelData.subarray(offset, offset + currentChunkSize);
-        audioDataPlanar.set(sub, ch * chunkSize);
-      }
-
-      const timestampUs = Math.round((offset / audioBuffer.sampleRate) * 1_000_000);
-      const audioData = new AudioData({
-        format: 'f32-planar',
-        sampleRate: audioBuffer.sampleRate,
-        numberOfFrames: chunkSize,
-        numberOfChannels: numChannels,
-        timestamp: timestampUs,
-        data: audioDataPlanar
-      });
-
-      audioEncoder.encode(audioData);
-      audioData.close();
-    }
-
-    await audioEncoder.flush();
-  }
-
-  // 6. Fast Sequential Video Frame Capture Loop
+  // 5. Deterministic Sequential Video Frame Rendering
   const originalMuted = videoElement.muted;
   const originalVolume = videoElement.volume;
+    let recorderWakeLock: any = null;
+    try { if ('wakeLock' in navigator) { recorderWakeLock = await (navigator as any).wakeLock.request('screen'); } } catch {}
   const originalCurrentTime = videoElement.currentTime;
+
+  const totalFrames = Math.max(1, Math.round(duration * fps));
+  const frameIntervalUs = Math.round((1 / fps) * 1_000_000);
+
+  const seekVideo = (time: number): Promise<void> => {
+    return new Promise((resolve) => {
+      if (!videoElement.seeking && Math.abs(videoElement.currentTime - time) < 0.002 && videoElement.readyState >= 2) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      const onDone = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          videoElement.removeEventListener('seeked', onDone);
+          videoElement.removeEventListener('error', onDone);
+          resolve();
+        }
+      };
+      const timer = setTimeout(onDone, 400);
+      videoElement.addEventListener('seeked', onDone, { once: true });
+      videoElement.addEventListener('error', onDone, { once: true });
+      try {
+        videoElement.currentTime = time;
+      } catch {
+        onDone();
+      }
+    });
+  };
 
   try {
     videoElement.muted = true;
-    videoElement.currentTime = trimStart;
+    videoElement.pause();
 
-    await new Promise<void>((resolve) => {
-      const onSeeked = () => {
-        videoElement.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-      videoElement.addEventListener('seeked', onSeeked, { once: true });
-      setTimeout(() => {
-        videoElement.removeEventListener('seeked', onSeeked);
-        resolve();
-      }, 500);
-    });
+    for (let i = 0; i < totalFrames; i++) {
+      if (encoderError) throw encoderError;
 
-    await videoElement.play();
+      const frameTime = trimStart + (i / fps);
+      await seekVideo(frameTime);
 
-    let frameCount = 0;
-    let lastMediaTime = -1;
-    let lastTimestampUs = -1;
-    const frameIntervalUs = Math.round((1 / fps) * 1_000_000);
+      renderStudioFrame(
+        ctx,
+        videoElement,
+        ambientCanvas,
+        ambientCtx,
+        frameTime,
+        width,
+        height,
+        srcW,
+        srcH,
+        isSourceVertical,
+        isTargetVertical,
+        brightness,
+        contrast,
+        visualOverlays,
+        preloadedImages,
+        headlineText,
+        captions,
+        subtitleStyle,
+        karaokeEnabled,
+        options.videoFitMode || 'cover'
+      );
 
-    await new Promise<void>((resolveLoop) => {
-      let isDone = false;
-      let rvfcId: number | null = null;
-      let rafId: number | null = null;
-      let watchdog: any = null;
+      const timestampUs = Math.round((i / fps) * 1_000_000);
+      const videoFrame = new VideoFrame(canvas, {
+        timestamp: timestampUs,
+        duration: frameIntervalUs
+      });
 
-      const finishLoop = () => {
-        if (isDone) return;
-        isDone = true;
-        if (watchdog) clearTimeout(watchdog);
-        if (rvfcId !== null && 'cancelVideoFrameCallback' in videoElement) {
-          (videoElement as any).cancelVideoFrameCallback(rvfcId);
+      const isKey = i % (fps * 2) === 0;
+      videoEncoder.encode(videoFrame, { keyFrame: isKey });
+      videoFrame.close();
+
+      if (videoEncoder.encodeQueueSize > 8) {
+        await videoEncoder.flush();
+      }
+
+      if (i % 6 === 0 || i === totalFrames - 1) {
+        const pct = Math.min(90, Math.round((i / totalFrames) * 85) + 5);
+        const remSec = Math.max(1, Math.round((totalFrames - i) / fps));
+        onProgress(pct, `מרנדר MP4 באיכות סטודיו (${pct}%) • נותרו כ-${remSec} שנ'...`);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    onProgress(92, 'סוגר קידוד וידאו H.264...');
+    await videoEncoder.flush();
+    if (encoderError) throw encoderError;
+
+    // 6. Encode Audio (AAC) into Muxer matching exact duration
+    if (hasAudio && audioBuffer) {
+      onProgress(94, 'מקודד רצועת שמע AAC צלולה ב-48kHz...');
+      let audioErr: Error | null = null;
+      const audioEncoder = new AudioEncoder({
+        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+        error: (e) => {
+          console.error('AudioEncoder error:', e);
+          audioErr = e;
         }
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
+      });
+
+      audioEncoder.configure({
+        codec: 'mp4a.40.2',
+        numberOfChannels: audioBuffer.numberOfChannels,
+        sampleRate: audioBuffer.sampleRate,
+        bitrate: 192_000
+      });
+
+      const totalSamples = audioBuffer.length;
+      const chunkSize = 1024;
+      const numChannels = audioBuffer.numberOfChannels;
+
+      for (let offset = 0; offset < totalSamples; offset += chunkSize) {
+        if (audioErr) throw audioErr;
+        const currentChunkSize = Math.min(chunkSize, totalSamples - offset);
+        const audioDataPlanar = new Float32Array(chunkSize * numChannels);
+
+        for (let ch = 0; ch < numChannels; ch++) {
+          const channelData = audioBuffer.getChannelData(ch);
+          const sub = channelData.subarray(offset, offset + currentChunkSize);
+          audioDataPlanar.set(sub, ch * chunkSize);
         }
-        try { videoElement.pause(); } catch (e) {}
-        resolveLoop();
-      };
 
-      const kickWatchdog = () => {
-        if (watchdog) clearTimeout(watchdog);
-        watchdog = setTimeout(() => {
-          console.warn('Playback render loop watchdog triggered, finalizing video');
-          finishLoop();
-        }, 4000);
-      };
-
-      const processFrame = (mediaTime: number) => {
-        if (isDone) return;
-        kickWatchdog();
-
-        // Check if target end reached
-        if (mediaTime >= targetEndTime - 0.03 || videoElement.ended) {
-          finishLoop();
-          return;
-        }
-
-        // Avoid re-processing the exact same frame if mediaTime didn't advance
-        if (lastMediaTime >= 0 && Math.abs(mediaTime - lastMediaTime) < 0.008) {
-          scheduleNext();
-          return;
-        }
-        lastMediaTime = mediaTime;
-
-        renderStudioFrame(
-          ctx,
-          videoElement,
-          ambientCanvas,
-          ambientCtx,
-          mediaTime,
-          width,
-          height,
-          srcW,
-          srcH,
-          isSourceVertical,
-          isTargetVertical,
-          brightness,
-          contrast,
-          visualOverlays,
-          preloadedImages,
-          headlineText,
-          captions,
-          subtitleStyle,
-          karaokeEnabled,
-          options.videoFitMode || 'cover'
-        );
-
-        let timestampUs = Math.round((mediaTime - trimStart) * 1_000_000);
-        if (timestampUs <= lastTimestampUs) {
-          timestampUs = lastTimestampUs + Math.round(frameIntervalUs / 2);
-        }
-        lastTimestampUs = timestampUs;
-
-        const videoFrame = new VideoFrame(canvas, {
+        const timestampUs = Math.round((offset / audioBuffer.sampleRate) * 1_000_000);
+        const audioData = new AudioData({
+          format: 'f32-planar',
+          sampleRate: audioBuffer.sampleRate,
+          numberOfFrames: chunkSize,
+          numberOfChannels: numChannels,
           timestamp: timestampUs,
-          duration: frameIntervalUs
+          data: audioDataPlanar
         });
 
-        const isKey = frameCount % (fps * 2) === 0;
-        videoEncoder.encode(videoFrame, { keyFrame: isKey });
-        videoFrame.close();
-        frameCount++;
+        audioEncoder.encode(audioData);
+        audioData.close();
+      }
 
-        const elapsed = Math.max(0, mediaTime - trimStart);
-        const pct = Math.min(94, Math.round((elapsed / duration) * 88) + 5);
-        const rem = Math.max(1, Math.round(duration - elapsed));
-        onProgress(pct, `מרנדר MP4 באיכות סטודיו (${pct}%) • נותרו כ-${rem} שנ'...`);
-
-        scheduleNext();
-      };
-
-      const scheduleNext = () => {
-        if (isDone) return;
-        if ('requestVideoFrameCallback' in videoElement) {
-          rvfcId = (videoElement as any).requestVideoFrameCallback((_now: number, metadata: any) => {
-            processFrame(metadata?.mediaTime ?? videoElement.currentTime);
-          });
-        } else {
-          rafId = requestAnimationFrame(() => {
-            processFrame((videoElement as any).currentTime);
-          });
-        }
-      };
-
-      videoElement.addEventListener('ended', finishLoop, { once: true });
-      kickWatchdog();
-      scheduleNext();
-    });
-
-    onProgress(95, 'סוגר קידוד וידאו H.264...');
-    await videoEncoder.flush();
+      await audioEncoder.flush();
+      if (audioErr) throw audioErr;
+    }
   } finally {
     try { videoElement.pause(); } catch (e) {}
     videoElement.muted = originalMuted;
     videoElement.volume = originalVolume;
     videoElement.currentTime = originalCurrentTime;
+    wakeLock?.release().catch(() => {});
+    canvas.width = 0;
+    canvas.height = 0;
+    ambientCanvas.width = 0;
+    ambientCanvas.height = 0;
   }
 
   onProgress(99, 'סוגר קובץ MP4 סופי עם Fast-Start...');
@@ -929,7 +911,9 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
   }
 
   const fps = 30;
-  const targetEndTime = Math.max(trimStart + 0.3, trimEnd);
+  const maxVideoDuration = (Number.isFinite(videoElement.duration) && videoElement.duration > 0) ? videoElement.duration : Infinity;
+  const safeTrimEnd = Math.min(trimEnd, maxVideoDuration);
+  const targetEndTime = Math.max(trimStart + 0.3, safeTrimEnd);
   const duration = Math.max(0.3, targetEndTime - trimStart);
 
   return new Promise<Blob>(async (resolve, reject) => {
@@ -1146,7 +1130,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
       };
 
       const onTimeUpdate = () => {
-        if (videoElement.currentTime >= targetEndTime - 0.05 || videoElement.ended) {
+        if (videoElement.currentTime >= targetEndTime - 0.02 || (videoElement.currentTime >= targetEndTime - 0.5 && videoElement.ended)) {
           finishExport();
         }
       };
@@ -1164,7 +1148,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
       videoElement.addEventListener('pause', onPauseCheck);
       videoElement.addEventListener('error', finishExport);
 
-      const maxAllowedSeconds = Math.max(8, duration + 4);
+      const maxAllowedSeconds = Math.max(30, duration * 2.5 + 20);
       watchdogTimer = setTimeout(() => {
         finishExport();
       }, maxAllowedSeconds * 1000);
