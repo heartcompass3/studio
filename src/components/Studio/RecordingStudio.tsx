@@ -695,9 +695,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     setIsScrolling(true);
   };
 
-  const handleStopRecording = () => {
+  const handleStopRecording = (trimTailSec?: number | React.MouseEvent) => {
+    const safeSec = typeof trimTailSec === 'number' ? trimTailSec : 0;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      recordStopTimeRef.current = performance.now();
+      const now = performance.now();
+      recordStopTimeRef.current = safeSec > 0 
+        ? Math.max(recordStartTimeRef.current + 500, now - (safeSec * 1000))
+        : now;
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -752,7 +756,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
   // Sound-Activated Clap Detector
   useEffect(() => {
-    if (!clapTriggerActive || isRecording || countdown !== null || recordedUrl) {
+    if (!clapTriggerActive || countdown !== null || recordedUrl) {
       if (clapDetectorRef.current) {
         clapDetectorRef.current.cleanup();
         clapDetectorRef.current = null;
@@ -778,6 +782,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       let animId: number;
       let prevVolume = 0;
       let cooldownUntil = 0;
+      let firstClapTime = 0;
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
       const checkVolumeClap = () => {
@@ -790,7 +795,17 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         const avg = sum / dataArray.length;
         const now = performance.now();
 
-        if (now > cooldownUntil && avg > 65 && (avg - prevVolume) > 35) {
+        if (isRecording) {
+          if (avg > 64 && (avg - prevVolume) > 34) {
+            if (firstClapTime === 0 || (now - firstClapTime) > 1200) {
+              firstClapTime = now;
+            } else if ((now - firstClapTime) >= 200 && (now - firstClapTime) <= 1200) {
+              firstClapTime = 0;
+              playStudioBeep(880, 160);
+              handleStopRecording(0.8);
+            }
+          }
+        } else if (now > cooldownUntil && avg > 65 && (avg - prevVolume) > 35) {
           cooldownUntil = now + 2500;
           handleStartRecording();
         }
@@ -818,6 +833,60 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       }
     };
   }, [clapTriggerActive, isRecording, countdown, recordedUrl, studioMode, isCameraActive, micStream]);
+
+  // Voice Keyword Hands-free Stop ("סטופ", "עצור", "סיימתי")
+  useEffect(() => {
+    if (!isRecording || !clapTriggerActive) return;
+
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    let recognition: any;
+    let isStopped = false;
+
+    try {
+      recognition = new SpeechRec();
+      recognition.lang = 'he-IL';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: any) => {
+        if (isStopped || !event.results || event.results.length === 0) return;
+        const lastResult = event.results[event.results.length - 1];
+        const transcript = lastResult[0]?.transcript?.trim().toLowerCase() || '';
+
+        if (
+          transcript.includes('סטופ') || 
+          transcript.includes('עצור') || 
+          transcript.includes('סיימתי') || 
+          transcript.includes('סוף')
+        ) {
+          playStudioBeep(880, 150);
+          handleStopRecording(0.9);
+        }
+      };
+
+      recognition.start();
+    } catch {}
+
+    return () => {
+      isStopped = true;
+      if (recognition) {
+        try { recognition.stop(); } catch {}
+      }
+    };
+  }, [isRecording, clapTriggerActive]);
+
+  const handleTeleprompterScriptComplete = () => {
+    if (isRecording) {
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          playStudioBeep(880, 200);
+          handleStopRecording();
+        }
+      }, 2000);
+    }
+  };
 
   const handleOpenEditor = () => {
     stopCamera();
@@ -1032,6 +1101,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               isMirrored={false}
               eyeContactAnchor={eyeContactAnchor}
               voiceTrackEnabled={voiceTrackMode}
+              audioStream={studioMode === 'camera' ? streamRef.current : micStreamRef.current}
               restartSignal={teleprompterRestartSignal}
               onSpeedChange={setScrollSpeed}
               onFontSizeChange={setFontSize}
@@ -1039,6 +1109,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               onToggleVoiceTrack={setVoiceTrackMode}
               onToggleScroll={() => setIsScrolling(prev => !prev)}
               onRestart={() => setIsScrolling(true)}
+              onScriptComplete={handleTeleprompterScriptComplete}
             />
           </div>
         )}
@@ -1164,7 +1235,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           {/* Clap Trigger Toggle */}
           <button
             onClick={() => setClapTriggerActive(prev => !prev)}
-            title="צילום ללא מגע: מחיאת כף מפעילה ספירה לאחור"
+            title="צילום ללא מגע: מחיאה אחת להתחלה, מחיאה כפולה / אמירת 'סטופ' לסיום"
             className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
               clapTriggerActive ? 'bg-amber-500/30 border-amber-400 text-amber-200 animate-pulse' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
             }`}

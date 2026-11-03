@@ -1,6 +1,6 @@
 import { captionPages, pageAtWord } from './captionLayout';
 export { splitLongCaptions } from './captionLayout';
-import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem } from '../types/studio';
+import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem, TextCalloutItem } from '../types/studio';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import fixWebmDuration from 'fix-webm-duration';
 
@@ -22,6 +22,8 @@ export interface RenderOptions {
   musicBlob?: Blob | null;
   musicVolume?: number;
   musicFitMode?: 'auto' | 'loop' | 'trim';
+  captionPositionY?: number;
+  textCallouts?: TextCalloutItem[];
   onProgress: (percent: number, statusText: string) => void;
 }
 
@@ -182,6 +184,66 @@ export const drawVisualOverlay = (
   ctx.restore();
 };
 
+export const drawTextCallout = (
+  ctx: CanvasRenderingContext2D,
+  callout: TextCalloutItem,
+  width: number,
+  height: number
+) => {
+  if (!callout.text || !callout.text.trim()) return;
+  const isVertical = height > width;
+  const fontSize = Math.max(20, Math.floor(height * (isVertical ? 0.034 : 0.044)));
+  const posX = width / 2;
+  const posY = height * ((callout.positionY ?? 32) / 100);
+
+  ctx.save();
+  ctx.font = `900 ${fontSize}px "Assistant", "Heebo", "Rubik", "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.direction = 'rtl';
+
+  const metrics = ctx.measureText(callout.text);
+  const textWidth = Math.min(metrics.width, width * 0.86);
+  const paddingX = fontSize * 0.85;
+  const paddingY = fontSize * 0.36;
+  const boxW = textWidth + paddingX * 2;
+  const boxH = fontSize + paddingY * 2;
+  const boxX = posX - boxW / 2;
+  const boxY = posY - boxH / 2;
+
+  if (callout.style === 'fire-pill') {
+    ctx.fillStyle = '#EF4444';
+    ctx.shadowColor = 'rgba(239, 68, 68, 0.7)';
+    ctx.shadowBlur = 18;
+  } else if (callout.style === 'neon-glow') {
+    ctx.fillStyle = '#8B5CF6';
+    ctx.shadowColor = 'rgba(139, 92, 246, 0.8)';
+    ctx.shadowBlur = 22;
+  } else if (callout.style === 'warning-box') {
+    ctx.fillStyle = '#F59E0B';
+    ctx.shadowColor = 'rgba(245, 158, 11, 0.6)';
+    ctx.shadowBlur = 14;
+  } else {
+    ctx.fillStyle = '#06B6D4';
+    ctx.shadowColor = 'rgba(6, 182, 212, 0.7)';
+    ctx.shadowBlur = 16;
+  }
+
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(boxX, boxY, boxW, boxH, boxH / 2);
+  } else {
+    ctx.rect(boxX, boxY, boxW, boxH);
+  }
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = callout.style === 'warning-box' ? '#000000' : '#FFFFFF';
+  ctx.fillText(callout.text, posX, posY, textWidth);
+
+  ctx.restore();
+};
+
 export const drawStudioSubtitle = (
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -189,7 +251,8 @@ export const drawStudioSubtitle = (
   height: number,
   style: SubtitleStyle = 'karaoke-yellow',
   activeWordIndex: number = -1,
-  karaokeEnabled: boolean = true
+  karaokeEnabled: boolean = true,
+  captionPositionY: number = 74
 ) => {
   if (!text || !text.trim()) return;
 
@@ -211,7 +274,7 @@ export const drawStudioSubtitle = (
 
   const totalBlockHeight = linesToRender.length * lineHeight;
   // Position strictly in the safe lower-third zone (82% for vertical, 85% for horizontal)
-  const baseY = isVertical ? height * 0.82 : height * 0.85;
+  const baseY = height * (captionPositionY / 100);
   const startY = baseY - (totalBlockHeight / 2) + (lineHeight / 2);
 
   let globalWordCounter = wordOffset;
@@ -401,7 +464,9 @@ export const renderStudioFrame = (
   captions: CaptionItem[],
   subtitleStyle: SubtitleStyle,
   karaokeEnabled: boolean,
-  videoFitMode: 'cover' | 'contain' = 'cover'
+  videoFitMode: 'cover' | 'contain' = 'cover',
+  captionPositionY: number = 74,
+  textCallouts: TextCalloutItem[] = []
 ) => {
   // 1. Draw video background / aspect ratio fitting
   if (isSourceVertical === isTargetVertical) {
@@ -479,6 +544,15 @@ export const renderStudioFrame = (
     drawHeadlineOverlay(ctx, headlineText, width, height);
   }
 
+  // 3.5. Draw Kinetic Pop-up Callouts if active
+  if (textCallouts && textCallouts.length > 0) {
+    for (const callout of textCallouts) {
+      if (currentPos >= callout.startTime && currentPos <= callout.endTime) {
+        drawTextCallout(ctx, callout, width, height);
+      }
+    }
+  }
+
   // 4. Draw burnt-in subtitle if active with active word highlight
   const activeCap = captions.find(c => currentPos >= c.start && currentPos < c.end);
   if (activeCap) {
@@ -487,7 +561,7 @@ export const renderStudioFrame = (
     const words = activeCap.text.trim().split(/\s+/);
     const activeWordIndex = Math.min(words.length - 1, Math.floor((elapsed / capDuration) * words.length));
 
-    drawStudioSubtitle(ctx, activeCap.text, width, height, subtitleStyle, activeWordIndex, karaokeEnabled);
+    drawStudioSubtitle(ctx, activeCap.text, width, height, subtitleStyle, activeWordIndex, karaokeEnabled, captionPositionY);
   }
 };
 
@@ -514,6 +588,8 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     musicBlob = null,
     musicVolume = 0.2,
     musicFitMode = 'auto',
+    captionPositionY = 74,
+    textCallouts = [],
     onProgress
   } = options;
 
@@ -773,7 +849,9 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
         captions,
         subtitleStyle,
         karaokeEnabled,
-        options.videoFitMode || 'cover'
+        options.videoFitMode || 'cover',
+        captionPositionY,
+        textCallouts
       );
 
       const timestampUs = Math.round((i / fps) * 1_000_000);
@@ -893,6 +971,8 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
     musicBlob = null,
     musicVolume = 0.2,
     musicFitMode = 'auto',
+    captionPositionY = 74,
+    textCallouts = [],
     onProgress 
   } = options;
 
@@ -1229,7 +1309,9 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
           captions,
           subtitleStyle,
           karaokeEnabled,
-          options.videoFitMode || 'cover'
+          options.videoFitMode || 'cover',
+        captionPositionY,
+        textCallouts
         );
 
         animationId = requestAnimationFrame(renderLoop);

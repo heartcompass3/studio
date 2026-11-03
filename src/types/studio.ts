@@ -100,6 +100,15 @@ export interface BackgroundVisualConfig {
 }
 
 
+export interface TextCalloutItem {
+  id: string;
+  text: string;
+  startTime: number;
+  endTime: number;
+  style: 'viral-badge' | 'neon-glow' | 'warning-box' | 'fire-pill';
+  positionY?: number;
+}
+
 export interface StudioTake {
   id: string;
   takeNumber: number;

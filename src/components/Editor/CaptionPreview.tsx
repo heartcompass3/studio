@@ -2,8 +2,18 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionItem, SubtitleStyle } from '../../types/studio';
 import { captionPages, pageAtWord } from '../../services/captionLayout';
 
-export function CaptionPreview({ caption, time, style, karaoke }: {
-  caption: CaptionItem; time: number; style: SubtitleStyle; karaoke: boolean;
+export function CaptionPreview({ 
+  caption, 
+  time, 
+  style, 
+  karaoke, 
+  positionY = 74 
+}: {
+  caption: CaptionItem; 
+  time: number; 
+  style: SubtitleStyle; 
+  karaoke: boolean; 
+  positionY?: number;
 }) {
   const box = useRef<HTMLSpanElement>(null);
   const [metrics, setMetrics] = useState({ width: 240, font: '900 18px Arial', size: 18 });
@@ -37,7 +47,10 @@ export function CaptionPreview({ caption, time, style, karaoke }: {
   const page = pageAtWord(captionPages(caption.text, text => context.measureText(text).width, metrics.width), active);
   const accent = style === 'karaoke-brand-cyan' ? '#38BDF8' : style === 'karaoke-brand-coral' ? '#FB7185' : '#FFE600';
   let index = page?.first || 0;
-  return <div className="absolute bottom-6 sm:bottom-10 left-0 right-0 px-3 sm:px-4 text-center pointer-events-none z-20 flex justify-center">
+  return <div 
+    className="absolute left-0 right-0 px-3 sm:px-4 text-center pointer-events-none z-20 flex justify-center transition-all duration-150"
+    style={{ top: `${positionY}%`, transform: 'translateY(-50%)' }}
+  >
     <span ref={box} data-caption-page className="inline-block px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl font-black text-xs sm:text-base md:text-lg leading-snug"
       style={{ width: '92%', background: style === 'karaoke-clean-floating' ? 'transparent' : 'rgba(0,0,0,.85)', color: 'white', textShadow: '0 2px 8px black' }}>
       {page?.lines.map((line, lineIndex) => <span key={lineIndex} data-caption-line dir="rtl" className="block whitespace-nowrap">

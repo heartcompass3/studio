@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { CaptionTimeInput } from './CaptionTimeInput';
 import { updateCaptionTiming, shiftAllCaptionsList, captionIsActive } from '../../services/captionTiming';
-import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem } from '../../types/studio';
+import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem, TextCalloutItem } from '../../types/studio';
 import { generateCaptionsFromVideoBlob, proofreadHebrewCaptions } from '../../services/geminiService';
 import { 
   exportVideoToMP4, 
@@ -57,7 +57,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   // Immersive TikTok/Reels Floating HUD Controls
   const [isUiHidden, setIsUiHidden] = useState(false);
-  const [activeEditorDrawer, setActiveEditorDrawer] = useState<"none" | "captions" | "style" | "music" | "trim">("none");
+  const [activeEditorDrawer, setActiveEditorDrawer] = useState<"none" | "captions" | "style" | "music" | "trim" | "callouts">("none");
+  const [captionPositionY, setCaptionPositionY] = useState(74);
+  const [textCallouts, setTextCallouts] = useState<TextCalloutItem[]>([]);
+  const [newCalloutText, setNewCalloutText] = useState('');
+  const [newCalloutStyle, setNewCalloutStyle] = useState<'viral-badge' | 'neon-glow' | 'warning-box' | 'fire-pill'>('fire-pill');
+  const [newCalloutPosY, setNewCalloutPosY] = useState(30);
 
   // Trimming State
   const [trimStart, setTrimStart] = useState(0);
@@ -589,6 +594,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         musicBlob: musicFile,
         musicVolume,
         musicFitMode,
+        captionPositionY,
+        textCallouts,
         onProgress: (pct, msg) => {
           setExportProgress(pct);
           setExportStatusText(msg);
@@ -851,7 +858,37 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         )}
 
-        {displayCaption && !isExporting && <CaptionPreview caption={displayCaption} time={currentTime} style={subtitleStyle} karaoke={karaokeEnabled} />}
+        {/* Pop-up Kinetic Callouts Preview */}
+        {(() => {
+          const activeCallout = textCallouts.find(c => currentTime >= c.startTime && currentTime <= c.endTime);
+          if (!activeCallout || isExporting) return null;
+          const badgeStyles =
+            activeCallout.style === 'fire-pill' ? 'bg-gradient-to-r from-red-600 to-amber-500 shadow-[0_0_20px_rgba(239,68,68,0.7)] text-white' :
+            activeCallout.style === 'neon-glow' ? 'bg-gradient-to-r from-purple-600 to-indigo-600 shadow-[0_0_22px_rgba(147,51,234,0.8)] text-white' :
+            activeCallout.style === 'warning-box' ? 'bg-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.6)] text-black' :
+            'bg-gradient-to-r from-cyan-500 to-blue-600 shadow-[0_0_20px_rgba(6,182,212,0.7)] text-white';
+
+          return (
+            <div 
+              className="absolute left-0 right-0 px-4 text-center pointer-events-none z-22 flex justify-center animate-in zoom-in-95 duration-200"
+              style={{ top: `${activeCallout.positionY ?? 30}%`, transform: 'translateY(-50%)' }}
+            >
+              <span className={`inline-block px-4 py-2 rounded-2xl font-black text-xs sm:text-sm md:text-base border border-white/30 backdrop-blur-md shadow-2xl ${badgeStyles}`}>
+                {activeCallout.text}
+              </span>
+            </div>
+          );
+        })()}
+
+        {displayCaption && !isExporting && (
+          <CaptionPreview 
+            caption={displayCaption} 
+            time={currentTime} 
+            style={subtitleStyle} 
+            karaoke={karaokeEnabled} 
+            positionY={captionPositionY} 
+          />
+        )}
 
         {/* Exporting Progress Overlay */}
         {isExporting && (
@@ -1004,6 +1041,18 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <span>חיתוך</span>
           </button>
 
+          {/* Pop-up Kinetic Callouts */}
+          <button
+            onClick={() => setActiveEditorDrawer(prev => prev === 'callouts' ? 'none' : 'callouts')}
+            title="מדבקות וטקסטים צצים במהלך הסרטון"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeEditorDrawer === 'callouts' || textCallouts.length > 0 ? 'bg-amber-500/40 border-amber-400 text-amber-200 shadow-amber-500/20' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-300" />
+            <span>מדבקות</span>
+          </button>
+
           {/* Media Overlays (B-Roll) */}
           <button
             onClick={() => setIsOverlayDrawerOpen(true)}
@@ -1055,6 +1104,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                   {activeEditorDrawer === 'style' && <><Palette className="w-4 h-4 text-amber-400" /> עיצוב כתוביות וכותרת</>}
                   {activeEditorDrawer === 'music' && <><Music className="w-4 h-4 text-fuchsia-400" /> מוזיקת רקע וקול</>}
                   {activeEditorDrawer === 'trim' && <><Scissors className="w-4 h-4 text-sky-400" /> חיתוך ושתיקות</>}
+                  {activeEditorDrawer === 'callouts' && <><Zap className="w-4 h-4 text-amber-400" /> מדבקות וטקסטים צצים ({textCallouts.length})</>}
                 </span>
               </div>
 
@@ -1251,6 +1301,222 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                       className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
                     />
                   </div>
+
+                  {/* Subtitle Height Slider & Presets */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="flex items-center gap-1.5 text-slate-200">
+                        <MoveHorizontal className="w-3.5 h-3.5 text-amber-300 rotate-90" />
+                        גובה כתוביות (הגבהה / הנמכה):
+                      </span>
+                      <span className="text-amber-300 font-mono text-[11px] bg-black/50 px-2 py-0.5 rounded-full border border-amber-400/30">
+                        {captionPositionY}% מהחלק העליון
+                      </span>
+                    </div>
+
+                    <input
+                      type="range"
+                      min="18"
+                      max="82"
+                      step="1"
+                      value={captionPositionY}
+                      onChange={(e) => setCaptionPositionY(parseInt(e.target.value, 10))}
+                      className="w-full accent-amber-400 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+
+                    <div className="flex items-center justify-between gap-1.5 pt-1">
+                      <button
+                        onClick={() => setCaptionPositionY(74)}
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                          captionPositionY === 74 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        ⬇️ תחתון (74%)
+                      </button>
+                      <button
+                        onClick={() => setCaptionPositionY(50)}
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                          captionPositionY === 50 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        🎯 מרכז (50%)
+                      </button>
+                      <button
+                        onClick={() => setCaptionPositionY(25)}
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                          captionPositionY === 25 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        🔝 עליון (25%)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              
+              {/* Pop-up Callouts Drawer Content */}
+              {activeEditorDrawer === 'callouts' && (
+                <div className="space-y-3.5 max-h-[50vh] overflow-y-auto pr-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                      הוסף מדבקת טקסט צץ (בזמן הנוכחי: {currentTime.toFixed(1)}s):
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        dir="rtl"
+                        value={newCalloutText}
+                        onChange={(e) => setNewCalloutText(e.target.value)}
+                        placeholder="טקסט צץ, למשל: 🔥 שימו לב לזה!"
+                        className="flex-1 bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-xl px-3 py-1.5 text-xs text-white outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          if (!newCalloutText.trim()) return;
+                          const callout = {
+                            id: `callout_${Date.now()}`,
+                            text: newCalloutText.trim(),
+                            startTime: Math.max(0, currentTime),
+                            endTime: Math.min(duration || 10, currentTime + 2.5),
+                            style: newCalloutStyle,
+                            positionY: newCalloutPosY
+                          };
+                          setTextCallouts(prev => [...prev, callout]);
+                          setNewCalloutText('');
+                        }}
+                        className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:opacity-90 text-white rounded-xl text-xs font-bold cursor-pointer shrink-0"
+                      >
+                        + הוסף
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Viral Presets Grid */}
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1.5">מדבקות ויראליות מוכנות בלחיצה:</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { text: '🔥 שימו לב!', style: 'fire-pill' },
+                        { text: '💡 תובנה של מיליון דולר', style: 'neon-glow' },
+                        { text: '⚠️ טעות נפוצה', style: 'warning-box' },
+                        { text: '🎯 טיפ זהב', style: 'viral-badge' },
+                        { text: '🤯 לא תאמינו שזה עובד', style: 'fire-pill' },
+                        { text: '👇 שמרו לעצמכם', style: 'neon-glow' },
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const callout: TextCalloutItem = {
+                              id: `callout_${Date.now()}_${idx}`,
+                              text: preset.text,
+                              startTime: Math.max(0, currentTime),
+                              endTime: Math.min(duration || 10, currentTime + 2.5),
+                              style: preset.style as TextCalloutItem['style'],
+                              positionY: newCalloutPosY
+                            };
+                            setTextCallouts(prev => [...prev, callout]);
+                          }}
+                          className="px-2.5 py-1 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-[10.5px] font-bold text-slate-200 active:scale-95 transition-all cursor-pointer"
+                        >
+                          {preset.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Auto-Distribute Callouts Across Video */}
+                  <button
+                    onClick={() => {
+                      const totalSec = duration || initialDuration || 15;
+                      const presets: { text: string; style: TextCalloutItem['style']; time: number }[] = [
+                        { text: '🔥 שימו לב!', style: 'fire-pill', time: Math.max(1, totalSec * 0.2) },
+                        { text: '💡 התובנה המרכזית', style: 'neon-glow', time: Math.max(3, totalSec * 0.5) },
+                        { text: '🎯 טיפ זהב לסיום', style: 'warning-box', time: Math.max(5, totalSec * 0.8) }
+                      ];
+                      const newItems: TextCalloutItem[] = presets.map((p, i) => ({
+                        id: `auto_callout_${Date.now()}_${i}`,
+                        text: p.text,
+                        startTime: p.time,
+                        endTime: Math.min(totalSec, p.time + 2.4),
+                        style: p.style,
+                        positionY: 28
+                      }));
+                      setTextCallouts(newItems);
+                    }}
+                    className="w-full py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-amber-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>פזר אוטומטית 3 מדבקות לאורך הסרטון</span>
+                  </button>
+
+                  {/* Callout Style Selector */}
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">סגנון עיצוב המדבקה:</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        onClick={() => setNewCalloutStyle('fire-pill')}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                          newCalloutStyle === 'fire-pill' ? 'bg-red-500/25 border-red-400 text-red-200' : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        🔥 אש ויראלית
+                      </button>
+                      <button
+                        onClick={() => setNewCalloutStyle('neon-glow')}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                          newCalloutStyle === 'neon-glow' ? 'bg-purple-500/25 border-purple-400 text-purple-200' : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        ⚡ ניאון עתידני
+                      </button>
+                      <button
+                        onClick={() => setNewCalloutStyle('warning-box')}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                          newCalloutStyle === 'warning-box' ? 'bg-amber-400/25 border-amber-400 text-amber-200' : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        ⚠️ התראה בולטת
+                      </button>
+                      <button
+                        onClick={() => setNewCalloutStyle('viral-badge')}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                          newCalloutStyle === 'viral-badge' ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200' : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        💎 תכלת יוקרתי
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* List of active callouts */}
+                  {textCallouts.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-white/10">
+                      <label className="text-[10px] font-bold text-slate-400 block">מדבקות קיימות ({textCallouts.length}):</label>
+                      {textCallouts.map((callout) => (
+                        <div key={callout.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-800/70 border border-slate-700">
+                          <button
+                            onClick={() => {
+                              setCurrentTime(callout.startTime);
+                              if (videoRef.current) videoRef.current.currentTime = callout.startTime;
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-bold text-white hover:text-amber-300 text-right cursor-pointer"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            <span>{callout.text}</span>
+                            <span className="text-[9px] text-slate-400 font-mono">({callout.startTime.toFixed(1)}s - {callout.endTime.toFixed(1)}s)</span>
+                          </button>
+                          <button
+                            onClick={() => setTextCallouts(prev => prev.filter(c => c.id !== callout.id))}
+                            className="p-1 text-slate-500 hover:text-rose-400 cursor-pointer"
+                            title="מחק מדבקה"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
