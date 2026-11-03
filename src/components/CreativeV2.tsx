@@ -227,10 +227,10 @@ export function CreativeV2({
       <div className="sv-heading">
         <div>
           <div className="sv-eyebrow">
-            מצפן הלב / CREATIVE DIRECTION <span>בטא</span>
+            מצפן הלב / SCRIPT & HOOK MASTER <span>ויראלי</span>
           </div>
-          <h1>שירגישו: זה בדיוק מה שקורה אצלי.</h1>
-          <p>אמונה מוכרת. הבנה חדשה. בחירה קטנה שאפשר להתחיל היום.</p>
+          <h1>מחולל תסריטים והוקים ויראליים</h1>
+          <p>הנדסה הפוכה של רובינס, גודין, רון וטרייסי בשילוב שיטת מ.ס.ע — אפס קלישאות בוטים.</p>
         </div>
         <button
           className="sv-button"

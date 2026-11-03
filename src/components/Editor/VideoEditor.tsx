@@ -53,7 +53,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [duration, setDuration] = useState(initialDuration || 0);
   const [exportAspectRatio, setExportAspectRatio] = useState<VideoAspectRatio>('9:16');
   const [videoFitMode, setVideoFitMode] = useState<'cover' | 'contain'>('cover');
-  const [showSafeZones, setShowSafeZones] = useState(true);
+  const [showSafeZones, setShowSafeZones] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Immersive TikTok/Reels Floating HUD Controls
   const [isUiHidden, setIsUiHidden] = useState(false);
@@ -172,12 +173,18 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   };
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.volume = sourceVolume;
-  }, [sourceVolume]);
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
+    }
+  }, [activeVideoUrl, sourceVolume, isMuted]);
 
   useEffect(() => {
-    if (musicRef.current) musicRef.current.volume = musicVolume;
-  }, [musicVolume]);
+    if (musicRef.current) {
+      musicRef.current.muted = isMuted;
+      musicRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, musicVolume));
+    }
+  }, [musicVolume, isMuted]);
 
   useEffect(() => {
     syncMusicPreview(true);
@@ -281,6 +288,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
+    videoRef.current.muted = isMuted;
+    videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
     const dur = videoRef.current.duration;
     if (videoRef.current.videoWidth && videoRef.current.videoHeight) {
       setVideoDimensions({
@@ -319,6 +328,22 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     }
   };
 
+  const toggleMute = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsMuted(prev => {
+      const next = !prev;
+      if (videoRef.current) {
+        videoRef.current.muted = next;
+        videoRef.current.volume = next ? 0 : Math.min(1, Math.max(0, sourceVolume));
+      }
+      if (musicRef.current) {
+        musicRef.current.muted = next;
+        musicRef.current.volume = next ? 0 : Math.min(1, Math.max(0, musicVolume));
+      }
+      return next;
+    });
+  };
+
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
@@ -331,6 +356,10 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       } else if (videoRef.current.ended) {
         videoRef.current.currentTime = 0;
       }
+      if (videoRef.current.muted && !isMuted) {
+        videoRef.current.muted = false;
+      }
+      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
       videoRef.current.play().then(() => {
         setIsPlaying(true);
         syncMusicPreview(true);
@@ -606,12 +635,30 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       const isWebm = mp4Blob.type.includes('webm');
       const ext = isWebm ? 'webm' : 'mp4';
       const formatTag = exportAspectRatio === '9:16' ? 'reels_9x16' : 'youtube_16x9';
+      const fileName = `heart_compass_${formatTag}_${Date.now()}.${ext}`;
       const url = URL.createObjectURL(mp4Blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `heart_compass_${formatTag}_${Date.now()}.${ext}`;
+      a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
+
+      // Mobile native share (Instagram / TikTok / WhatsApp / Save to Camera Roll)
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        try {
+          const shareFile = new File([mp4Blob], fileName, { type: mp4Blob.type || 'video/mp4' });
+          if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+            await navigator.share({
+              files: [shareFile],
+              title: 'מצפן הלב - סרטון ערוך',
+            });
+          }
+        } catch (shareErr: any) {
+          if (shareErr.name !== 'AbortError') {
+            console.warn('Share note:', shareErr);
+          }
+        }
+      }
     } catch (err: any) {
       console.error('Export Error:', err);
       onError('שגיאה בייצוא הוידאו: ' + (err.message || ''));
@@ -763,6 +810,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             }}
             onError={() => onError('לא ניתן לקרוא את פס הקול. נסה קובץ MP3 או MP4 אחר.')}
           />
+        )}
+
+        {/* Muted warning pill for mobile audio */}
+        {activeVideoUrl && isMuted && isPlaying && !isExporting && (
+          <button
+            onClick={toggleMute}
+            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xl border border-rose-400/50 animate-bounce cursor-pointer pointer-events-auto"
+          >
+            <VolumeX className="w-3.5 h-3.5" />
+            <span>הקול מושתק — לחץ כאן להפעלה</span>
+          </button>
         )}
 
         {/* Center Play Overlay when paused */}
@@ -1558,8 +1616,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     <input
                       type="range"
                       min="0"
-                      max="1"
-                      step="0.01"
+                      max="1.5"
+                      step="0.05"
                       value={sourceVolume}
                       onChange={(e) => setSourceVolume(Number(e.target.value))}
                       className="w-full accent-sky-500 cursor-pointer"
@@ -1669,6 +1727,18 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
             </button>
 
+            <button
+              onClick={toggleMute}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                isMuted 
+                  ? 'bg-rose-600/80 text-white border border-rose-400' 
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white'
+              }`}
+              title={isMuted ? 'בטל השתקה (הפעל קול)' : 'השתק'}
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-200" /> : <Volume2 className="w-3.5 h-3.5 text-sky-400" />}
+            </button>
+
             <input
               type="range"
               min="0"
@@ -1738,6 +1808,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         ref={videoFileInputRef}
         type="file"
         accept="video/*,video/mp4,video/webm,video/quicktime,video/mov,.mp4,.webm,.mov,.m4v"
+        onClick={(e) => { (e.target as HTMLInputElement).value = ""; }}
         className="hidden"
         onChange={handleVideoFileSelected}
       />

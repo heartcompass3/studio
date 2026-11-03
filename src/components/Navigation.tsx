@@ -1,14 +1,9 @@
 import React from "react";
 import {
-  Brain,
-  Target,
-  Smartphone,
-  Ear,
-  Layers,
-  MessageSquare,
   Video,
   Settings,
   Sparkles,
+  Scissors,
 } from "lucide-react";
 import { ActiveTab } from "../types/studio";
 
@@ -34,21 +29,9 @@ export const Navigation: React.FC<NavigationProps> = ({
   }[] = [
     {
       id: "creative-v2",
-      label: "קריאייטיב V2",
+      label: "קריאייטיב ותסריטים",
       icon: Sparkles,
       color: "text-teal-300",
-    },
-    {
-      id: "editor-v2",
-      label: "בימוי ועריכה V2",
-      icon: Layers,
-      color: "text-teal-300",
-    },
-    {
-      id: "brain",
-      label: "סקריפטים ו-Hooks",
-      icon: Brain,
-      color: "text-indigo-400",
     },
     {
       id: "studio",
@@ -56,36 +39,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       icon: Video,
       color: "text-rose-400",
     },
-    { id: "editor", label: "עורך מקורי", icon: Video, color: "text-slate-400" },
     {
-      id: "offer",
-      label: "הצעת זהב (Hormozi)",
-      icon: Target,
-      color: "text-amber-400",
-    },
-    {
-      id: "sms",
-      label: "הודעות חיבור",
-      icon: Smartphone,
-      color: "text-green-400",
-    },
-    {
-      id: "translator",
-      label: "מתורגמן הסערה",
-      icon: Ear,
-      color: "text-emerald-400",
-    },
-    {
-      id: "loop",
-      label: "מיפוי לופ מ.ס.ע",
-      icon: Layers,
-      color: "text-purple-400",
-    },
-    {
-      id: "coach",
-      label: "חדר טיפולים & סימולטור",
-      icon: MessageSquare,
-      color: "text-teal-400",
+      id: "editor",
+      label: "עריכה וכתוביות",
+      icon: Scissors,
+      color: "text-indigo-400",
+      badge: hasRecordedVideo ? "סרטון מוכן" : undefined,
     },
   ];
 
@@ -101,17 +60,17 @@ export const Navigation: React.FC<NavigationProps> = ({
             <h1 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
               מצפן הלב{" "}
               <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-normal">
-                Studio V2
+                Studio
               </span>
             </h1>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              קריאייטיב, צילום ובימוי של מצפן הלב
+              אולפן תוכן וידאו, קריאייטיב וכתוביות קריוקי
             </p>
           </div>
         </div>
 
-        {/* Tab Buttons */}
-        <nav className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 order-3 w-full">
+        {/* 3 Core Clean Pipeline Tab Buttons */}
+        <nav className="flex items-center justify-center gap-2 py-1 order-3 sm:order-2 w-full sm:w-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -119,9 +78,9 @@ export const Navigation: React.FC<NavigationProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap ${
+                className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
                   isActive
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-102"
                     : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
                 }`}
               >
@@ -130,7 +89,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 />
                 <span>{item.label}</span>
                 {item.badge && (
-                  <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white animate-pulse font-mono">
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500 text-white font-bold animate-pulse">
                     {item.badge}
                   </span>
                 )}
@@ -140,11 +99,11 @@ export const Navigation: React.FC<NavigationProps> = ({
         </nav>
 
         {/* Settings button */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 order-2 sm:order-3">
           <button
             onClick={onOpenSettings}
             title="הגדרות Gemini API"
-            className="p-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-700/60"
+            className="p-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-700/60 cursor-pointer"
           >
             <Settings className="w-4 h-4" />
           </button>

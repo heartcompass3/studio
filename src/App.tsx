@@ -3,15 +3,8 @@ import { AlertCircle } from "lucide-react";
 import { ActiveTab } from "./types/studio";
 import { Navigation } from "./components/Navigation";
 import { SettingsModal } from "./components/SettingsModal";
-import { ScriptEngine } from "./components/ScriptGenerator/ScriptEngine";
 import { RecordingStudio } from "./components/Studio/RecordingStudio";
 import { VideoEditor } from "./components/Editor/VideoEditor";
-import { OfferLab } from "./components/Tools/OfferLab";
-import { SmsGenerator } from "./components/Tools/SmsGenerator";
-import { BehaviorTranslator } from "./components/Tools/BehaviorTranslator";
-import { LoopMapper } from "./components/Tools/LoopMapper";
-import { CoachRoom } from "./components/Tools/CoachRoom";
-import { EditorV2 } from "./components/EditorV2";
 import { CreativeV2 } from "./components/CreativeV2";
 
 export const App: React.FC = () => {
@@ -41,14 +34,10 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSendToStudio = () => {
-    setActiveTab("studio");
-  };
-
   return (
     <div
       className={`bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white ${
-        activeTab === "studio" || activeTab === "editor" || activeTab === "editor-v2"
+        activeTab === "studio" || activeTab === "editor"
           ? "h-[100dvh] max-h-[100dvh] overflow-hidden"
           : "min-h-screen"
       }`}
@@ -62,7 +51,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Header Navigation */}
+      {/* Header Navigation with 3 Core Pipeline Steps */}
       <Navigation
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -72,10 +61,11 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className={`flex-1 w-full mx-auto ${
-        activeTab === "studio" || activeTab === "editor" || activeTab === "editor-v2"
+        activeTab === "studio" || activeTab === "editor"
           ? "p-0 pb-0 max-w-full flex-1 min-h-0 overflow-hidden flex flex-col"
           : "max-w-[1560px] p-4 md:p-6 pb-20 overflow-y-auto"
       }`}>
+        {/* STEP 1: Unified Creative & Viral Script Engine */}
         <div hidden={activeTab !== "creative-v2"}>
           <CreativeV2
             onError={triggerError}
@@ -86,42 +76,22 @@ export const App: React.FC = () => {
             }}
             onUseCover={(title) => {
               setCoverTitle(title);
-              setActiveTab("editor-v2");
+              setActiveTab("editor");
             }}
           />
         </div>
-        <div hidden={activeTab !== "editor-v2"}>
-          <EditorV2
-            active={activeTab === "editor-v2"}
-            videoBlob={videoBlob}
-            coverTitle={coverTitle}
-            scriptText={currentScript}
-            onError={triggerError}
-          />
-        </div>
 
-        {/* TAB 1: Scripts & Hooks */}
-        {activeTab === "brain" && (
-          <ScriptEngine
-            currentScript={currentScript}
-            onScriptChange={setCurrentScript}
-            onSendToStudio={handleSendToStudio}
-            onError={triggerError}
-          />
-        )}
-
-        {/* TAB 2: Broadcast Recording Studio */}
+        {/* STEP 2: Mobile Broadcast Recording Studio */}
         {activeTab === "studio" && (
           <RecordingStudio
             scriptText={currentScript}
             onVideoRecorded={handleVideoRecorded}
             onOpenEditor={() => setActiveTab("editor")}
-            onOpenOriginalEditor={() => setActiveTab("editor")}
             onError={triggerError}
           />
         )}
 
-        {/* TAB 3: Pro Video Editor & Subtitles */}
+        {/* STEP 3: Unified Pro Video Editor with Karaoke Subtitles */}
         <div hidden={activeTab !== "editor"}>
           <VideoEditor
             active={activeTab === "editor"}
@@ -137,39 +107,6 @@ export const App: React.FC = () => {
             onError={triggerError}
           />
         </div>
-
-        {/* TAB 4: Hormozi Offer Lab */}
-        {activeTab === "offer" && (
-          <OfferLab
-            onUsePitchAsIdea={(pitch) => {
-              setCurrentScript(pitch);
-              setActiveTab("brain");
-            }}
-            onError={triggerError}
-          />
-        )}
-
-        {/* TAB 5: Reconnection WhatsApp SMS */}
-        {activeTab === "sms" && <SmsGenerator onError={triggerError} />}
-
-        {/* TAB 6: Teen Behavior Translator */}
-        {activeTab === "translator" && (
-          <BehaviorTranslator onError={triggerError} />
-        )}
-
-        {/* TAB 7: Family Loop Mapper */}
-        {activeTab === "loop" && <LoopMapper onError={triggerError} />}
-
-        {/* TAB 8: Coach Room & Teen Simulator */}
-        {activeTab === "coach" && (
-          <CoachRoom
-            onConvertToScriptIdea={(idea) => {
-              setCurrentScript(idea);
-              setActiveTab("brain");
-            }}
-            onError={triggerError}
-          />
-        )}
       </main>
 
       {/* API Settings Modal */}

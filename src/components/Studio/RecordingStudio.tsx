@@ -232,9 +232,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const constraints: MediaStreamConstraints = {
         video: videoConstraints,
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
           channelCount: { ideal: 1 },
           sampleRate: { ideal: 48000 }
         }
@@ -326,9 +326,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
           channelCount: { ideal: 1 },
           sampleRate: { ideal: 48000 }
         },
@@ -927,6 +927,12 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               controls
               autoPlay
               playsInline
+              onLoadedMetadata={() => {
+                if (previewVideoRef.current) {
+                  previewVideoRef.current.volume = 1.0;
+                  previewVideoRef.current.muted = false;
+                }
+              }}
               style={{
                 objectFit: 'contain',
                 objectPosition: 'center center',
@@ -1079,7 +1085,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             }`}
           >
             <Gauge className="w-3.5 h-3.5 text-indigo-300" />
-            <span>${scrollSpeed}x</span>
+            <span>{scrollSpeed}x</span>
           </button>
 
           {/* Countdown Timer */}
@@ -1393,14 +1399,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               </div>
             )}
 
-            {recordedUrl && onOpenOriginalEditor && (
-              <button
-                onClick={handleOpenOriginalEditor}
-                className="px-3 py-1.5 rounded-full bg-slate-800/80 backdrop-blur-md border border-slate-700 text-slate-200 text-xs font-bold hover:text-white cursor-pointer transition-all active:scale-95"
-              >
-                <span>מקורי</span>
-              </button>
-            )}
           </div>
         </div>
 
