@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { Play, Pause, RotateCcw, Type, Gauge, FlipHorizontal, Eye, Clock, Sparkles, Mic, Volume2 } from 'lucide-react';
+import { Eye, Sparkles, Mic, Gauge, Play, Pause, RotateCcw } from 'lucide-react';
 
 export interface TeleprompterProps {
   text: string;
@@ -31,7 +31,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   isCameraActive,
   isMirrored = false,
   eyeContactAnchor = false,
-  voiceTrackEnabled = true,
+  voiceTrackEnabled = false,
   audioStream = null,
   restartSignal = 0,
   onToggleVoiceTrack,
@@ -52,11 +52,10 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   const isScrollingRef = useRef(isScrolling);
   const voiceTrackRef = useRef(voiceTrackEnabled);
 
-  // Audio VAD Analysis Refs
+  // Web Audio VAD Analyser Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const isSpeakingRef = useRef<boolean>(false);
   const lastSpokenTimestampRef = useRef<number>(0);
   const lastFrameTimeRef = useRef<number | null>(null);
 
@@ -70,8 +69,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   const [hasEnded, setHasEnded] = useState(false);
   const [voiceSyncActive, setVoiceSyncActive] = useState(voiceTrackEnabled);
   const [isSpeakingLive, setIsSpeakingLive] = useState(false);
-  const [isCruiseActive, setIsCruiseActive] = useState(false);
-  const [audioEnergyLevel, setAudioEnergyLevel] = useState(0);
 
   useEffect(() => {
     speedRef.current = scrollSpeed;
@@ -135,7 +132,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     };
   }, [text, fontSize, updateBounds]);
 
-  // Setup Web Audio VAD Analyser from audioStream
+  // Setup Web Audio VAD Analyser with guaranteed resume
   useEffect(() => {
     if (!audioStream) {
       if (audioCtxRef.current) {
@@ -155,17 +152,26 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       if (!AudioCtx) return;
 
       const ctx = new AudioCtx();
+      const resumeCtx = () => {
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+      };
+      resumeCtx();
+      window.addEventListener('click', resumeCtx, { once: true });
+      window.addEventListener('touchstart', resumeCtx, { once: true });
+
       const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.3;
+      analyser.smoothingTimeConstant = 0.2;
       source.connect(analyser);
 
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
       audioSourceRef.current = source;
     } catch (err) {
-      console.warn('Teleprompter Web Audio Init Note:', err);
+      console.warn('Teleprompter audio init note:', err);
     }
 
     return () => {
@@ -176,9 +182,9 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     };
   }, [audioStream]);
 
-  // Core Smart Voice & Constant Animation Scroll Engine
+  // Core Rock-Solid Continuous & Voice Scroll Engine
   useEffect(() => {
-    const dataArray = new Uint8Array(128);
+    const timeData = new Uint8Array(128);
 
     const scrollLoop = (now: number) => {
       if (!isScrollingRef.current) return;
@@ -190,63 +196,45 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       const deltaSec = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = now;
 
-      let effectiveSpeedFactor = 1.0;
+      let speedFactor = 1.0;
 
-      if (voiceTrackRef.current) {
-        // Voice Activity Detection (VAD) via AnalyserNode
-        let isSpeaking = false;
-        let speechEnergy = 0;
-
-        if (analyserRef.current) {
-          analyserRef.current.getByteFrequencyData(dataArray);
-          // Measure energy in human speech band (bins 3 to 35: approx 100Hz - 1500Hz)
-          let sum = 0;
-          let count = 0;
-          for (let i = 3; i < Math.min(dataArray.length, 36); i++) {
-            sum += dataArray[i];
-            count++;
-          }
-          speechEnergy = count > 0 ? (sum / count) : 0;
-          setAudioEnergyLevel(Math.min(100, Math.round((speechEnergy / 90) * 100)));
-
-          // Adaptive Speech Threshold (energy > 28 is vocal activity)
-          if (speechEnergy > 26) {
-            isSpeaking = true;
-            lastSpokenTimestampRef.current = now;
-          }
+      if (voiceTrackRef.current && analyserRef.current) {
+        // Measure real speech activity using time-domain amplitude excursion
+        analyserRef.current.getByteTimeDomainData(timeData);
+        let maxDev = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const dev = Math.abs(timeData[i] - 128);
+          if (dev > maxDev) maxDev = dev;
         }
 
-        const silenceDuration = (now - lastSpokenTimestampRef.current);
-
-        // Natural conversational pause buffer: allow 550ms between words without stopping
-        if (isSpeaking || silenceDuration < 550) {
-          isSpeakingRef.current = true;
+        const isSpeaking = maxDev > 12;
+        if (isSpeaking) {
+          lastSpokenTimestampRef.current = now;
           setIsSpeakingLive(true);
-          setIsCruiseActive(false);
-          effectiveSpeedFactor = 1.0; // Normal speaking scroll pace
-        } else if (silenceDuration > 3800) {
-          // Cruise Control Fail-safe: user has paused > 3.8s, creep slowly so not stuck
-          isSpeakingRef.current = false;
-          setIsSpeakingLive(false);
-          setIsCruiseActive(true);
-          effectiveSpeedFactor = 0.28; // Gentle 28% slow crawl
+          speedFactor = 1.0;
         } else {
-          // User paused to breathe / think: hold prompter position
-          isSpeakingRef.current = false;
           setIsSpeakingLive(false);
-          setIsCruiseActive(false);
-          effectiveSpeedFactor = 0.0; // Paused
+          const silenceDuration = now - lastSpokenTimestampRef.current;
+          if (silenceDuration < 700) {
+            // Natural pause between words in sentence: keep smooth momentum
+            speedFactor = 0.85;
+          } else if (silenceDuration > 3200) {
+            // Safety cruise control: slowly continue so creator is NEVER frozen
+            speedFactor = 0.65;
+          } else {
+            // Deliberate pause: hold place
+            speedFactor = 0.0;
+          }
         }
       } else {
-        // Standard constant scroll
+        // Constant dependable scroll
+        speedFactor = 1.0;
         setIsSpeakingLive(false);
-        setIsCruiseActive(false);
-        effectiveSpeedFactor = 1.0;
       }
 
-      if (effectiveSpeedFactor > 0) {
-        // Pixels Per Second calculation: 1.0x ≈ 28px/sec
-        const pps = Math.max(0.1, speedRef.current) * 28 * effectiveSpeedFactor;
+      if (speedFactor > 0) {
+        // Linear velocity: 1.0x speed = 28px/second
+        const pps = Math.max(0.2, speedRef.current) * 28 * speedFactor;
         const targetOffset = currentOffsetRef.current + deltaSec * pps;
 
         if (targetOffset <= maxScroll) {
@@ -263,7 +251,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
           if (onScriptComplete) onScriptComplete();
         }
       } else {
-        // Paused on silence: keep loop alive waiting for speech
+        // Paused on silence: keep frame loop running waiting for voice
         animFrameRef.current = requestAnimationFrame(scrollLoop);
       }
     };
@@ -280,7 +268,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       }
       lastFrameTimeRef.current = null;
       setIsSpeakingLive(false);
-      setIsCruiseActive(false);
     }
 
     return () => {
@@ -300,81 +287,6 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     setHasEnded(false);
     updateBounds();
   }, [text, restartSignal, updateBounds]);
-
-  // Optional Parallel Web Speech API for line alignment when supported
-  useEffect(() => {
-    if (!isScrolling || !voiceSyncActive) return;
-
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) return;
-
-    let recognition: any;
-    let isStopped = false;
-
-    try {
-      recognition = new SpeechRec();
-      recognition.lang = 'he-IL';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-
-      recognition.onresult = (event: any) => {
-        if (isStopped || !event.results || event.results.length === 0) return;
-        const lastResult = event.results[event.results.length - 1];
-        const spokenText = lastResult[0]?.transcript?.trim().toLowerCase();
-        if (!spokenText) return;
-
-        const words = spokenText.split(/\s+/).filter((w: string) => w.length >= 2);
-        if (words.length === 0) return;
-
-        // Search for matching paragraph in script
-        let bestParagraphIdx = -1;
-        let maxMatches = 0;
-
-        paragraphs.forEach((p, idx) => {
-          const lowerP = p.toLowerCase();
-          let matches = 0;
-          for (const w of words) {
-            if (lowerP.includes(w)) matches++;
-          }
-          if (matches > maxMatches) {
-            maxMatches = matches;
-            bestParagraphIdx = idx;
-          }
-        });
-
-        if (bestParagraphIdx >= 0 && maxMatches >= 2) {
-          const targetRatio = bestParagraphIdx / Math.max(1, paragraphs.length - 1);
-          const targetOffset = targetRatio * maxScroll;
-          // Smooth jump toward matched paragraph
-          currentOffsetRef.current = (currentOffsetRef.current * 0.4) + (targetOffset * 0.6);
-          setOffsetY(currentOffsetRef.current);
-          lastSpokenTimestampRef.current = performance.now();
-        }
-      };
-
-      recognition.onerror = () => {
-        // Silently continue with acoustic VAD engine
-      };
-
-      recognition.onend = () => {
-        if (!isStopped && isScrolling && voiceSyncActive) {
-          try { recognition.start(); } catch {}
-        }
-      };
-
-      recognition.start();
-    } catch {
-      // Audio capture in use by recorder, acoustic VAD operates reliably
-    }
-
-    return () => {
-      isStopped = true;
-      if (recognition) {
-        try { recognition.stop(); } catch {}
-      }
-    };
-  }, [isScrolling, voiceSyncActive, paragraphs, maxScroll]);
 
   const handleRestart = useCallback(() => {
     currentOffsetRef.current = 0;
@@ -477,7 +389,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   return (
     <div className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden">
       
-      {/* Eye-Level Reading Focus Guide + Live Voice Track Badge */}
+      {/* Eye-Level Reading Focus Guide + Controls */}
       {showFocusGuide && (
         <div className={`absolute ${eyeContactAnchor ? 'top-[16%]' : 'top-[35%]'} left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-3 sm:px-6 transition-all duration-300 ${eyeContactAnchor ? 'opacity-95' : 'opacity-85'}`}>
           <div className="flex items-center gap-2">
@@ -488,37 +400,34 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
             </div>
           </div>
 
-          {/* Interactive Live Voice Track Status / Toggle */}
-          <button
-            onClick={() => {
-              const nextState = !voiceSyncActive;
-              setVoiceSyncActive(nextState);
-              if (onToggleVoiceTrack) onToggleVoiceTrack(nextState);
-            }}
-            className={`pointer-events-auto px-2.5 py-1 rounded-full border text-[10px] font-black backdrop-blur-md shadow-sm flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
-              voiceSyncActive
-                ? isSpeakingLive
-                  ? 'bg-emerald-500/35 border-emerald-400 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.5)] animate-pulse'
-                  : isCruiseActive
-                    ? 'bg-amber-500/30 border-amber-400 text-amber-200 shadow-amber-500/30'
-                    : 'bg-indigo-600/35 border-indigo-400 text-indigo-200 shadow-indigo-500/25'
-                : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:text-white'
-            }`}
-            title="לחץ להפעלת/השבתת מעקב קול חכם (גולל רק כשאתה מדבר, ועוצר בהפוגות)"
-          >
-            <Mic className={`w-3 h-3 ${isSpeakingLive ? 'text-emerald-300 animate-bounce' : 'text-indigo-300'}`} />
-            <span>
-              {voiceSyncActive ? (
-                isSpeakingLive 
-                  ? '🟢 שומע דיבור (גולל)' 
-                  : isCruiseActive 
-                    ? '🐢 זחילה איטית' 
-                    : '⏸️ הפוגה (ממתין לקולך)'
-              ) : (
-                '⏱️ גלילה קבועה (ללא קול)'
-              )}
-            </span>
-          </button>
+          {/* Mode Selector Pill: Constant Speed vs Voice Follow */}
+          <div className="pointer-events-auto flex items-center bg-black/60 backdrop-blur-md border border-white/20 rounded-full p-0.5 shadow-xl">
+            <button
+              onClick={() => {
+                setVoiceSyncActive(false);
+                if (onToggleVoiceTrack) onToggleVoiceTrack(false);
+              }}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                !voiceSyncActive ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Gauge className="w-3 h-3" />
+              <span>קצב קבוע ({scrollSpeed}x)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setVoiceSyncActive(true);
+                if (onToggleVoiceTrack) onToggleVoiceTrack(true);
+              }}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                voiceSyncActive ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Mic className="w-3 h-3" />
+              <span>{isSpeakingLive ? '🟢 שומע דיבור' : 'עוקב קול'}</span>
+            </button>
+          </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-slate-400/80 bg-black/50 px-2 py-0.5 rounded-full">

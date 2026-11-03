@@ -13,7 +13,7 @@ import { Teleprompter } from './Teleprompter';
 import { generateAudioFromText } from '../../services/geminiService';
 import { VideoAspectRatio, RecordingMode, BackgroundSourceType, BackgroundSlide, StudioTake } from '../../types/studio';
 import { fixWebmDuration } from '../../services/webmFixer';
-import { createBoostedAudioPipeline, BoostedAudioResult } from '../../services/audioService';
+// Native direct audio stream recording
 import { VoiceAudioEffects, VOICE_AUDIO_PRESETS } from '../../services/meditationAudio';
 
 interface RecordingStudioProps {
@@ -44,14 +44,14 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   // Microphone Volume Boost (Web Audio Processor - 100% to 400%)
   const [micGain, setMicGain] = useState<number>(1.0); // 1.0 = Clean native studio mic level
   const [showMicControls, setShowMicControls] = useState<boolean>(false);
-  const boostedAudioPipelineRef = useRef<BoostedAudioResult | null>(null);
+  // Native audio ref
 
   const [voiceEffects, setVoiceEffects] = useState<VoiceAudioEffects>(VOICE_AUDIO_PRESETS.speech);
   const voiceEffectsRef = useRef<VoiceAudioEffects>(VOICE_AUDIO_PRESETS.speech);
   const updateVoiceEffects = (next: VoiceAudioEffects) => {
     voiceEffectsRef.current = next;
     setVoiceEffects(next);
-    boostedAudioPipelineRef.current?.setEffects(next);
+    
     const tracks = [...(streamRef.current?.getAudioTracks() || []), ...(micStreamRef.current?.getAudioTracks() || [])];
     for (const track of tracks) void track.applyConstraints({
       noiseSuppression: next.noiseReduction !== false, echoCancellation: true, autoGainControl: true,
@@ -167,7 +167,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     return () => {
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       if (mediaRecorderRef.current?.state === 'recording') { recordStopTimeRef.current = performance.now(); mediaRecorderRef.current.stop(); }
-      boostedAudioPipelineRef.current?.cleanup();
+      
       stopCamera();
       stopMic();
     };
@@ -237,7 +237,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         video: videoConstraints,
         audio: {
           echoCancellation: true,
-          noiseSuppression: voiceEffectsRef.current.noiseReduction !== false,
+          noiseSuppression: false,
           autoGainControl: true,
           sampleRate: 48000,
           channelCount: { ideal: 1 }
@@ -331,7 +331,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
-          noiseSuppression: voiceEffectsRef.current.noiseReduction !== false,
+          noiseSuppression: false,
           autoGainControl: true,
           sampleRate: 48000,
           channelCount: { ideal: 1 }
@@ -420,24 +420,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         return;
       }
       // Initialize from the user's click, before the countdown, to resume Web Audio only when requested.
-      const rawTrack = (studioMode === 'camera' ? streamRef.current : micStreamRef.current)?.getAudioTracks()[0];
-      boostedAudioPipelineRef.current?.cleanup();
-      boostedAudioPipelineRef.current = null;
-      const needsAudioProcessing = micGain !== 1.0 || voiceEffectsRef.current.bassDb > 0 || voiceEffectsRef.current.reverbMix > 0;
-      if (rawTrack && needsAudioProcessing) {
-        const pipeline = createBoostedAudioPipeline(new MediaStream([rawTrack]), micGain, voiceEffectsRef.current);
-        boostedAudioPipelineRef.current = pipeline;
-        try {
-          await pipeline.resume();
-          if (!pipeline.isProcessed && (voiceEffectsRef.current.bassDb > 0 || voiceEffectsRef.current.reverbMix > 0)) {
-            onError('האפקטים לא זמינים בדפדפן הזה. ההקלטה תישמר עם קול המיקרופון המקורי.');
-          }
-        } catch (error) {
-          pipeline.cleanup();
-          boostedAudioPipelineRef.current = null;
-          onError('עיבוד השמע לא הופעל. ההקלטה תישמר עם קול המיקרופון המקורי.');
-        }
-      }
       let remaining = countdownDuration;
       if (remaining <= 0) {
         playStudioBeep(880, 160);
@@ -476,10 +458,10 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     let canvasLoopId: number | null = null;
 
     const rawAudioTrack = (studioMode === 'camera' ? streamRef.current : micStreamRef.current)?.getAudioTracks()[0];
-    const recordAudioTrack = boostedAudioPipelineRef.current?.processedStream.getAudioTracks()[0] || rawAudioTrack;
+    const recordAudioTrack = rawAudioTrack;
 
     if (studioMode === 'camera') {
-      if (!streamRef.current) { boostedAudioPipelineRef.current?.cleanup(); boostedAudioPipelineRef.current = null; return; }
+      if (!streamRef.current) {   return; }
 
       // CRITICAL FIX FOR A/V SYNC & MOBILE FLUIDITY:
       // Always record directly from the hardware camera track and microphone track!
@@ -635,8 +617,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       });
     } catch (error) {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
-      boostedAudioPipelineRef.current?.cleanup();
-      boostedAudioPipelineRef.current = null;
+      
+      
       onError('לא ניתן להתחיל הקלטה בדפדפן הזה. נסה שוב או בחר דפדפן אחר.');
       return;
     }
@@ -651,9 +633,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     recorder.onstop = async () => {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
       if (bgVideoRef.current) bgVideoRef.current.pause();
-      if (boostedAudioPipelineRef.current) {
-        boostedAudioPipelineRef.current.cleanup();
-        boostedAudioPipelineRef.current = null;
+      if (false) {
+
+        
       }
       if (chunksRef.current.length === 0) return;
       const exactDurationSecs = Math.max(0.5, ((recordStopTimeRef.current ?? performance.now()) - recordStartTimeRef.current) / 1000);
@@ -686,8 +668,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       recorder.start();
     } catch (error) {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
-      boostedAudioPipelineRef.current?.cleanup();
-      boostedAudioPipelineRef.current = null;
+      
+      
       onError('ההקלטה לא התחילה. נסה שוב.');
       return;
     }
@@ -754,7 +736,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     }
   };
 
-  // Sound-Activated Clap Detector
+  // High-Precision Acoustic Transient Clap Detector
   useEffect(() => {
     if (!clapTriggerActive || countdown !== null || recordedUrl) {
       if (clapDetectorRef.current) {
@@ -773,58 +755,84 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
+
+      // Ensure AudioContext is resumed immediately and on interaction
+      const resumeContext = () => {
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+      };
+      resumeContext();
+      window.addEventListener('click', resumeContext, { once: true });
+      window.addEventListener('touchstart', resumeContext, { once: true });
+
       const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.1;
       source.connect(analyser);
 
       let isDestroyed = false;
       let animId: number;
-      let prevVolume = 0;
+      let prevPeak = 0;
       let cooldownUntil = 0;
       let firstClapTime = 0;
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const timeData = new Uint8Array(analyser.frequencyBinCount);
 
-      const checkVolumeClap = () => {
+      const checkClapTransient = () => {
         if (isDestroyed) return;
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const avg = sum / dataArray.length;
-        const now = performance.now();
+        analyser.getByteTimeDomainData(timeData);
 
-        if (isRecording) {
-          if (avg > 64 && (avg - prevVolume) > 34) {
+        // Find max peak deviation from center value (128)
+        let peak = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const dev = Math.abs(timeData[i] - 128);
+          if (dev > peak) peak = dev;
+        }
+
+        const now = performance.now();
+        // A clap is a sharp transient spike: peak >= 34 and sharp rise from previous frame
+        const isClapSpike = peak >= 34 && (peak - prevPeak) >= 16;
+
+        if (isClapSpike && now > cooldownUntil) {
+          if (isRecording) {
+            // Double clap within 1.2s triggers stop
             if (firstClapTime === 0 || (now - firstClapTime) > 1200) {
               firstClapTime = now;
-            } else if ((now - firstClapTime) >= 200 && (now - firstClapTime) <= 1200) {
+              playStudioBeep(660, 70); // Feedback chirp for clap #1
+            } else if ((now - firstClapTime) >= 180 && (now - firstClapTime) <= 1200) {
               firstClapTime = 0;
-              playStudioBeep(880, 160);
-              handleStopRecording(0.8);
+              cooldownUntil = now + 1500;
+              playStudioBeep(880, 160); // Confirmation beep
+              handleStopRecording(0.7); // Auto-trim 0.7s so clap is cut out
             }
+          } else {
+            // Before recording: single clap triggers countdown and recording
+            cooldownUntil = now + 2500;
+            playStudioBeep(880, 180);
+            handleStartRecording();
           }
-        } else if (now > cooldownUntil && avg > 65 && (avg - prevVolume) > 35) {
-          cooldownUntil = now + 2500;
-          handleStartRecording();
         }
 
-        prevVolume = avg;
-        animId = requestAnimationFrame(checkVolumeClap);
+        prevPeak = peak;
+        animId = requestAnimationFrame(checkClapTransient);
       };
 
-      animId = requestAnimationFrame(checkVolumeClap);
+      animId = requestAnimationFrame(checkClapTransient);
 
       clapDetectorRef.current = {
         cleanup: () => {
           isDestroyed = true;
           cancelAnimationFrame(animId);
+          window.removeEventListener('click', resumeContext);
+          window.removeEventListener('touchstart', resumeContext);
           try { source.disconnect(); } catch {}
           try { ctx.close(); } catch {}
         }
       };
-    } catch {}
+    } catch (err) {
+      console.warn('Clap detector error:', err);
+    }
 
     return () => {
       if (clapDetectorRef.current) {
@@ -833,49 +841,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       }
     };
   }, [clapTriggerActive, isRecording, countdown, recordedUrl, studioMode, isCameraActive, micStream]);
-
-  // Voice Keyword Hands-free Stop ("סטופ", "עצור", "סיימתי")
-  useEffect(() => {
-    if (!isRecording || !clapTriggerActive) return;
-
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) return;
-
-    let recognition: any;
-    let isStopped = false;
-
-    try {
-      recognition = new SpeechRec();
-      recognition.lang = 'he-IL';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-
-      recognition.onresult = (event: any) => {
-        if (isStopped || !event.results || event.results.length === 0) return;
-        const lastResult = event.results[event.results.length - 1];
-        const transcript = lastResult[0]?.transcript?.trim().toLowerCase() || '';
-
-        if (
-          transcript.includes('סטופ') || 
-          transcript.includes('עצור') || 
-          transcript.includes('סיימתי') || 
-          transcript.includes('סוף')
-        ) {
-          playStudioBeep(880, 150);
-          handleStopRecording(0.9);
-        }
-      };
-
-      recognition.start();
-    } catch {}
-
-    return () => {
-      isStopped = true;
-      if (recognition) {
-        try { recognition.stop(); } catch {}
-      }
-    };
-  }, [isRecording, clapTriggerActive]);
 
   const handleTeleprompterScriptComplete = () => {
     if (isRecording) {
@@ -947,7 +912,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[calc(100vh-70px)] sm:h-[calc(100vh-80px)] bg-slate-950 overflow-hidden flex items-center justify-center p-0 sm:py-2 select-none font-sans">
+    <div className="relative w-full h-full max-h-full bg-slate-950 overflow-hidden flex items-center justify-center p-0 select-none font-sans">
       
       {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
       <div 
@@ -1111,6 +1076,34 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               onRestart={() => setIsScrolling(true)}
               onScriptComplete={handleTeleprompterScriptComplete}
             />
+          </div>
+        )}
+
+        
+        {/* Top Recording Bar with Instant Stop Button - ALWAYS visible when recording */}
+        {isRecording && (
+          <div className="absolute top-3 inset-x-3 z-40 flex items-center justify-between pointer-events-auto animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-950/80 backdrop-blur-md border border-rose-500/50 rounded-full text-white text-xs font-bold shadow-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+              <span className="font-mono text-sm tracking-wide">
+                {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+
+            {clapTriggerActive && (
+              <span className="hidden sm:inline-block text-[11px] text-amber-200/90 font-bold bg-black/60 backdrop-blur px-3 py-1 rounded-full border border-amber-400/30">
+                👏 מחיאה כפולה לסיום
+              </span>
+            )}
+
+            <button
+              onClick={() => handleStopRecording()}
+              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full border-2 border-white shadow-2xl shadow-rose-600/60 flex items-center gap-1.5 cursor-pointer"
+              title="עצור הקלטה מיד"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>עצור</span>
+            </button>
           </div>
         )}
 
@@ -1513,11 +1506,12 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             {!recordedUrl ? (
               isRecording ? (
                 <button
-                  onClick={handleStopRecording}
-                  className="w-16 h-16 rounded-full bg-rose-600 border-4 border-white flex items-center justify-center text-white shadow-2xl shadow-rose-600/50 animate-pulse active:scale-95 transition-transform cursor-pointer"
+                  onClick={() => handleStopRecording()}
+                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-rose-600 border-4 border-white flex flex-col items-center justify-center text-white shadow-2xl shadow-rose-600/70 animate-pulse active:scale-95 transition-transform cursor-pointer"
                   title="סיים הקלטה"
                 >
-                  <Square className="w-6 h-6 fill-current" />
+                  <Square className="w-5 h-5 sm:w-6 sm:h-6 fill-current mb-0.5" />
+                  <span className="text-[9px] sm:text-[10px] font-black tracking-wider">עצור</span>
                 </button>
               ) : (
                 <button

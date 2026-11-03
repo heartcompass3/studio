@@ -681,7 +681,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   }
 
   return (
-    <div className="relative w-full h-[calc(100vh-70px)] sm:h-[calc(100vh-80px)] bg-slate-950 overflow-hidden flex items-center justify-center p-0 sm:py-2 select-none font-sans">
+    <div className="relative w-full h-full max-h-full bg-slate-950 overflow-hidden flex items-center justify-center p-0 select-none font-sans">
 
       {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
       <div 

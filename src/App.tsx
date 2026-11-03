@@ -67,7 +67,11 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-[1560px] mx-auto p-4 md:p-6 pb-20">
+      <main className={`flex-1 w-full mx-auto ${
+        activeTab === "studio" || activeTab === "editor" || activeTab === "editor-v2"
+          ? 'p-0 pb-0 max-w-full h-[calc(100dvh-64px)] overflow-hidden flex flex-col'
+          : 'max-w-[1560px] p-4 md:p-6 pb-20'
+      }`}>
         <div hidden={activeTab !== "creative-v2"}>
           <CreativeV2
             onError={triggerError}
