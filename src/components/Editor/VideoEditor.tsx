@@ -674,25 +674,26 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   }
 
   return (
-    <div className="relative w-full h-[calc(100vh-70px)] sm:h-[calc(100vh-80px)] bg-black overflow-hidden flex items-center justify-center select-none font-sans">
+    <div className="relative w-full h-[calc(100vh-70px)] sm:h-[calc(100vh-80px)] bg-slate-950 overflow-hidden flex items-center justify-center p-0 sm:py-2 select-none font-sans">
 
-      {/* 1. IMMERSIVE FULL-CANVAS VIDEO PLAYER HERO */}
+      {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
       <div 
-        className="relative w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300"
-        style={{
-          aspectRatio: frameAspectRatio,
-          height: isPortrait ? '100%' : 'auto',
-          width: isPortrait ? 'auto' : '100%',
-          maxHeight: '100%',
-          maxWidth: '100%'
-        }}
+        id="editor-stage"
+        style={
+          exportAspectRatio === '9:16'
+            ? { aspectRatio: '9 / 16', height: '100%', width: 'auto', maxHeight: '100%', maxWidth: '100%' }
+            : exportAspectRatio === '16:9'
+              ? { aspectRatio: '16 / 9', width: '100%', height: 'auto', maxHeight: '100%', maxWidth: '1200px' }
+              : { aspectRatio: frameAspectRatio, height: isPortrait ? '100%' : 'auto', width: isPortrait ? 'auto' : '100%', maxHeight: '100%', maxWidth: '100%' }
+        }
+        className="relative flex items-center justify-center bg-black overflow-hidden transition-all duration-300 sm:rounded-3xl sm:border sm:border-slate-800/80 sm:shadow-[0_0_60px_rgba(0,0,0,0.85)]"
         onClick={(e) => {
           if (activeEditorDrawer !== 'none') {
             setActiveEditorDrawer('none');
             return;
           }
           const target = e.target as HTMLElement;
-          if (target.tagName === 'VIDEO' || target.id === 'video-editor-backdrop') {
+          if (target.tagName === 'VIDEO' || target.id === 'editor-stage') {
             setIsUiHidden(prev => !prev);
           }
         }}
@@ -763,8 +764,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             onClick={togglePlay}
             className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/40 transition-colors pointer-events-auto z-10 cursor-pointer"
           >
-            <div className="w-16 h-16 rounded-full bg-gradient-to-r from-indigo-600 to-rose-600 hover:opacity-95 text-white flex items-center justify-center shadow-2xl transform transition-transform hover:scale-110 active:scale-95">
-              <Play className="w-8 h-8 fill-current ml-1" />
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-r from-indigo-600 to-rose-600 hover:opacity-95 text-white flex items-center justify-center shadow-2xl transform transition-transform hover:scale-110 active:scale-95">
+              <Play className="w-7 h-7 sm:w-8 sm:h-8 fill-current ml-1" />
             </div>
           </div>
         )}
@@ -803,7 +804,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         {/* Top Headline Hook Bar Overlay */}
         {headlineText && !isExporting && (
           <div className="absolute top-4 sm:top-6 left-0 right-0 px-4 text-center pointer-events-none z-20 animate-in slide-in-from-top-2">
-            <span className="inline-block max-w-[94%] px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-black text-xs sm:text-sm md:text-base border border-indigo-500/60 shadow-2xl backdrop-blur-md">
+            <span className="inline-block max-w-[94%] px-3.5 py-1.5 rounded-2xl bg-slate-900/90 text-white font-black text-xs sm:text-sm md:text-base border border-indigo-500/60 shadow-2xl backdrop-blur-md">
               {headlineText}
             </span>
           </div>
@@ -814,36 +815,36 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden select-none animate-in fade-in duration-200">
             {/* Top Bar Danger Zone */}
             <div className="absolute top-0 inset-x-0 h-[10%] bg-rose-500/20 border-b-2 border-dashed border-rose-400/70 flex items-center justify-center backdrop-blur-[1px]">
-              <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[10px] font-bold">
+              <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[9px] sm:text-[10px] font-bold">
                 🚫 שטח עליון חסום (חיפוש / תפריטים)
               </span>
             </div>
 
             {/* Right Engagement Column Danger Zone */}
-            <div className="absolute right-0 top-[30%] bottom-[22%] w-[18%] min-w-[50px] bg-rose-500/15 border-l-2 border-dashed border-rose-400/70 flex flex-col items-center justify-around py-3 backdrop-blur-[1px]">
-              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">👤</div>
-              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">❤️</div>
-              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">💬</div>
-              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">↗️</div>
-              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">🎵</div>
-              <span className="text-[7.5px] font-bold text-rose-300/90 text-center leading-tight">
+            <div className="absolute right-0 top-[30%] bottom-[22%] w-[18%] min-w-[46px] bg-rose-500/15 border-l-2 border-dashed border-rose-400/70 flex flex-col items-center justify-around py-2.5 backdrop-blur-[1px]">
+              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[8px]">👤</div>
+              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[8px]">❤️</div>
+              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[8px]">💬</div>
+              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[8px]">↗️</div>
+              <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[8px]">🎵</div>
+              <span className="text-[7px] font-bold text-rose-300/90 text-center leading-tight">
                 כפתורי<br />רשת
               </span>
             </div>
 
             {/* Bottom Danger Zone */}
             <div className="absolute bottom-0 inset-x-0 h-[22%] bg-rose-500/20 border-t-2 border-dashed border-rose-400/70 flex flex-col items-center justify-center gap-0.5 backdrop-blur-[1px]">
-              <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[10px] font-bold">
-                🚫 שטח תחתון חסום (שם יוצר, כיתוב רשת, מוזיקה)
+              <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[9px] sm:text-[10px] font-bold">
+                🚫 שטח תחתון חסום (שם יוצר, כיתוב, סאונד)
               </span>
-              <span className="text-[9px] text-slate-300/80">
+              <span className="text-[8.5px] text-slate-300/80">
                 הצב את הכתוביות מעל לקו זה
               </span>
             </div>
 
             {/* Center Safe Box Guide */}
             <div className="absolute top-[11%] bottom-[23%] left-[4%] right-[19%] border-2 border-dashed border-emerald-400/70 rounded-xl pointer-events-none flex items-start justify-start p-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-400/60 text-emerald-300 text-[9px] font-black tracking-wide">
+              <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-400/60 text-emerald-300 text-[8.5px] font-black tracking-wide">
                 ✅ אזור בטוח לכתוביות ופנים
               </span>
             </div>
@@ -851,749 +852,620 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         )}
 
         {displayCaption && !isExporting && <CaptionPreview caption={displayCaption} time={currentTime} style={subtitleStyle} karaoke={karaokeEnabled} />}
-      </div>
 
-      {/* Exporting Progress Overlay */}
-      {isExporting && (
-        <div className="absolute inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
-          <Loader className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-          <h4 className="text-xl font-bold text-white mb-2">מרנדר וידאו MP4 באיכות סטודיו...</h4>
-          <p className="text-xs text-slate-400 mb-6">{exportStatusText}</p>
-          <div className="w-full max-w-xs h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700">
-            <div
-              className="h-full bg-gradient-to-r from-indigo-500 to-rose-500 rounded-full transition-all duration-150"
-              style={{ width: `${exportProgress}%` }}
-            />
+        {/* Exporting Progress Overlay */}
+        {isExporting && (
+          <div className="absolute inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
+            <Loader className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+            <h4 className="text-xl font-bold text-white mb-2">מרנדר וידאו MP4 באיכות סטודיו...</h4>
+            <p className="text-xs text-slate-400 mb-6">{exportStatusText}</p>
+            <div className="w-full max-w-xs h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 to-rose-500 rounded-full transition-all duration-150"
+                style={{ width: `${exportProgress}%` }}
+              />
+            </div>
+            <span className="text-xs font-bold text-indigo-400 mt-2">{exportProgress}%</span>
           </div>
-          <span className="text-xs font-bold text-indigo-400 mt-2">{exportProgress}%</span>
+        )}
+
+        {/* 2. FLOATING TOP HORIZONTAL GLASS BAR - ANCHORED INSIDE STAGE */}
+        <div className={`absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+          isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}>
+          {/* Left: Back to Studio Button */}
+          <button
+            onClick={onBackToStudio}
+            className="px-2.5 sm:px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-xl hover:bg-black/80 active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowRight className="w-4 h-4" />
+            <span>אולפן</span>
+          </button>
+
+          {/* Center: Format Switcher Glass Pill */}
+          <div className="flex items-center bg-black/60 backdrop-blur-xl p-1 rounded-full border border-white/20 shadow-xl">
+            <button
+              onClick={() => setExportAspectRatio('9:16')}
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                exportAspectRatio === '9:16'
+                  ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>9:16</span>
+            </button>
+            <button
+              onClick={() => setExportAspectRatio('16:9')}
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                exportAspectRatio === '16:9'
+                  ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline">16:9</span>
+            </button>
+            {exportAspectRatio === '9:16' && (
+              <button
+                onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
+                className="ml-1 px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition-all"
+                title={videoFitMode === 'cover' ? 'מצב: מילוי מסך מלא (Cover)' : 'מצב: התאמת שוליים'}
+              >
+                <Scan className="w-3 h-3 text-indigo-300" />
+                <span>{videoFitMode === 'cover' ? 'מילוי' : 'שוליים'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right: Export Button + Clean View Toggle */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={() => setIsUiHidden(prev => !prev)}
+              title="תצוגה נקייה ללא סרגלים (הקש במסך לחזרה)"
+              className="px-2 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1 shadow-xl cursor-pointer active:scale-95 transition-all"
+            >
+              <Eye className="w-3.5 h-3.5 text-cyan-300" />
+              <span className="hidden sm:inline">נקי</span>
+            </button>
+
+            <button
+              onClick={handleExportMP4}
+              disabled={isExporting}
+              className="px-3 sm:px-4 py-1.5 bg-gradient-to-r from-emerald-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white rounded-full text-xs font-black flex items-center gap-1.5 shadow-xl shadow-emerald-500/30 border border-emerald-400/40 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+              title="ייצא סרטון MP4"
+            >
+              {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span>{isExporting ? 'מרנדר...' : 'ייצא MP4'}</span>
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* 2. FLOATING TOP HORIZONTAL GLASS BAR */}
-      <div className={`absolute top-3 inset-x-3 sm:inset-x-6 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
-        isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
-      }`}>
-        {/* Left: Back to Studio Button */}
-        <button
-          onClick={onBackToStudio}
-          className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-xl hover:bg-black/80 active:scale-95 transition-all cursor-pointer"
-        >
-          <ArrowRight className="w-4 h-4" />
-          <span>אולפן</span>
-        </button>
-
-        {/* Center: Format Switcher Glass Pill */}
-        <div className="flex items-center bg-black/60 backdrop-blur-xl p-1 rounded-full border border-white/20 shadow-xl">
+        {/* 3. TIKTOK / CAPCUT RIGHT VERTICAL GLASS TOOLS RAIL - ANCHORED INSIDE STAGE */}
+        <div className={`absolute top-14 right-2 sm:right-2.5 z-30 flex flex-col gap-1.5 sm:gap-2 items-center pointer-events-auto transition-all duration-300 ${
+          isUiHidden ? 'opacity-0 pointer-events-none translate-x-4' : 'opacity-100 translate-x-0'
+        }`}>
+          {/* Auto Captions AI */}
           <button
-            onClick={() => setExportAspectRatio('9:16')}
-            className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              exportAspectRatio === '9:16'
-                ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
-                : 'text-slate-300 hover:text-white'
+            onClick={handleAutoCaptions}
+            disabled={isGeneratingCaptions || !activeVideoUrl}
+            title="תמלול כתוביות AI אוטומטי של הסרטון"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-amber-500 to-indigo-600 text-white flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:opacity-95 active:scale-90 transition-all cursor-pointer disabled:opacity-50 border border-amber-300/40"
+          >
+            {isGeneratingCaptions ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-200" />}
+            <span>תמלול</span>
+          </button>
+
+          {/* Captions Drawer Toggle */}
+          <button
+            onClick={() => setActiveEditorDrawer(prev => prev === 'captions' ? 'none' : 'captions')}
+            title="עריכת כתוביות וסנכרון"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeEditorDrawer === 'captions' ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>9:16</span>
+            <Subtitles className="w-3.5 h-3.5 text-indigo-300" />
+            <span>כתוביות</span>
           </button>
+
+          {/* Subtitle Style & Headline Drawer Toggle */}
           <button
-            onClick={() => setExportAspectRatio('16:9')}
-            className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              exportAspectRatio === '16:9'
-                ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
-                : 'text-slate-300 hover:text-white'
+            onClick={() => setActiveEditorDrawer(prev => prev === 'style' ? 'none' : 'style')}
+            title="עיצוב סגנון כתוביות וכותרת עליונה"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeEditorDrawer === 'style' ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
             }`}
           >
-            <Monitor className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">16:9</span>
+            <Palette className="w-3.5 h-3.5 text-amber-300" />
+            <span>סגנון</span>
           </button>
+
+          {/* Music & Sound Mix Drawer Toggle */}
+          <button
+            onClick={() => setActiveEditorDrawer(prev => prev === 'music' ? 'none' : 'music')}
+            title="מיקס מוזיקת רקע וקול"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeEditorDrawer === 'music' || musicFile ? 'bg-fuchsia-600/40 border-fuchsia-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Music className="w-3.5 h-3.5 text-fuchsia-300" />
+            <span>מוזיקה</span>
+          </button>
+
+          {/* Trimming & Cut Drawer Toggle */}
+          <button
+            onClick={() => setActiveEditorDrawer(prev => prev === 'trim' ? 'none' : 'trim')}
+            title="חיתוך קצוות ושתיקות"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeEditorDrawer === 'trim' || hasCustomTrim ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Scissors className="w-3.5 h-3.5 text-sky-300" />
+            <span>חיתוך</span>
+          </button>
+
+          {/* Media Overlays (B-Roll) */}
+          <button
+            onClick={() => setIsOverlayDrawerOpen(true)}
+            title="שכבות תמונות, הוק פתיחה ו-B-Roll"
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              visualOverlays.length > 0 ? 'bg-sky-600/40 border-sky-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-sky-300" />
+            <span>שכבות</span>
+          </button>
+
+          {/* Social Safe Zones Toggle */}
           {exportAspectRatio === '9:16' && (
             <button
-              onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
-              className="ml-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
-              title={videoFitMode === 'cover' ? 'מצב: מילוי מסך מלא (Cover)' : 'מצב: התאמת שוליים'}
+              onClick={() => setShowSafeZones(prev => !prev)}
+              title="אזורי בטיחות לסושיאל (TikTok / Reels / Shorts)"
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+                showSafeZones ? 'bg-rose-500/30 border-rose-400 text-rose-300' : 'bg-black/60 border-white/20 text-slate-400 hover:text-white'
+              }`}
             >
-              <Scan className="w-3 h-3 text-indigo-300" />
-              <span>{videoFitMode === 'cover' ? 'מילוי' : 'שוליים'}</span>
+              <Shield className="w-3.5 h-3.5 text-rose-400" />
+              <span>בטיחות</span>
+            </button>
+          )}
+
+          {/* SRT Download */}
+          {captions.length > 0 && (
+            <button
+              onClick={handleExportSRT}
+              title="הורד קובץ כתוביות SRT"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-300" />
+              <span>SRT</span>
             </button>
           )}
         </div>
 
-        {/* Right: Export Button + Clean View Toggle */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsUiHidden(prev => !prev)}
-            title="תצוגה נקייה ללא סרגלים (הקש במסך לחזרה)"
-            className="px-2.5 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1 shadow-xl cursor-pointer active:scale-95 transition-all"
-          >
-            <Eye className="w-3.5 h-3.5 text-cyan-300" />
-            <span className="hidden sm:inline">נקי</span>
-          </button>
+        {/* 4. SLIDE-UP TRANSLUCENT BOTTOM SHEETS - ANCHORED INSIDE STAGE */}
+        {activeEditorDrawer !== 'none' && (
+          <div className="absolute bottom-0 inset-x-0 z-40 max-h-[64vh] bg-slate-900/95 backdrop-blur-2xl rounded-t-3xl border-t border-slate-700/80 p-3.5 sm:p-5 shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-300 text-white text-xs">
+            
+            {/* Drawer Top Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5 mb-2.5 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-xs sm:text-sm flex items-center gap-1.5">
+                  {activeEditorDrawer === 'captions' && <><Subtitles className="w-4 h-4 text-indigo-400" /> כתוביות ({captions.length})</>}
+                  {activeEditorDrawer === 'style' && <><Palette className="w-4 h-4 text-amber-400" /> עיצוב כתוביות וכותרת</>}
+                  {activeEditorDrawer === 'music' && <><Music className="w-4 h-4 text-fuchsia-400" /> מוזיקת רקע וקול</>}
+                  {activeEditorDrawer === 'trim' && <><Scissors className="w-4 h-4 text-sky-400" /> חיתוך ושתיקות</>}
+                </span>
+              </div>
 
-          <button
-            onClick={handleExportMP4}
-            disabled={isExporting}
-            className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white rounded-full text-xs font-black flex items-center gap-1.5 shadow-xl shadow-emerald-500/30 border border-emerald-400/40 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
-            title="ייצא סרטון MP4"
-          >
-            {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            <span>{isExporting ? 'מרנדר...' : 'ייצא MP4'}</span>
-          </button>
-        </div>
-      </div>
+              <div className="flex items-center gap-1.5">
+                {activeEditorDrawer === 'captions' && (
+                  <>
+                    <button
+                      onClick={addCaption}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> הוסף
+                    </button>
+                    {captions.length > 0 && (
+                      <button
+                        onClick={handleProofreadCaptions}
+                        disabled={isProofreading}
+                        className="px-2 py-1 bg-indigo-950 border border-indigo-500/40 text-indigo-200 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        {isProofreading ? <Loader className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-indigo-300" />}
+                        <span>הגהה AI</span>
+                      </button>
+                    )}
+                  </>
+                )}
 
-      {/* 3. TIKTOK / CAPCUT RIGHT VERTICAL GLASS TOOLS RAIL */}
-      <div className={`absolute top-14 sm:top-16 right-2 sm:right-3.5 z-30 flex flex-col gap-2 items-center pointer-events-auto transition-all duration-300 ${
-        isUiHidden ? 'opacity-0 pointer-events-none translate-x-4' : 'opacity-100 translate-x-0'
-      }`}>
-        {/* Auto Captions AI */}
-        <button
-          onClick={handleAutoCaptions}
-          disabled={isGeneratingCaptions || !activeVideoUrl}
-          title="תמלול כתוביות AI אוטומטי של הסרטון"
-          className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-indigo-600 text-white flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:opacity-95 active:scale-90 transition-all cursor-pointer disabled:opacity-50 border border-amber-300/40"
-        >
-          {isGeneratingCaptions ? <Loader className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-200" />}
-          <span>תמלול</span>
-        </button>
-
-        {/* Captions Drawer Toggle */}
-        <button
-          onClick={() => setActiveEditorDrawer(prev => prev === 'captions' ? 'none' : 'captions')}
-          title="עריכת כתוביות וסנכרון"
-          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-            activeEditorDrawer === 'captions' ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-          }`}
-        >
-          <Subtitles className="w-4 h-4 text-indigo-300" />
-          <span>כתוביות</span>
-        </button>
-
-        {/* Subtitle Style & Headline Drawer Toggle */}
-        <button
-          onClick={() => setActiveEditorDrawer(prev => prev === 'style' ? 'none' : 'style')}
-          title="עיצוב סגנון כתוביות וכותרת עליונה"
-          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-            activeEditorDrawer === 'style' ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-          }`}
-        >
-          <Palette className="w-4 h-4 text-amber-300" />
-          <span>סגנון</span>
-        </button>
-
-        {/* Music & Sound Mix Drawer Toggle */}
-        <button
-          onClick={() => setActiveEditorDrawer(prev => prev === 'music' ? 'none' : 'music')}
-          title="מיקס מוזיקת רקע וקול"
-          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-            activeEditorDrawer === 'music' || musicFile ? 'bg-fuchsia-600/40 border-fuchsia-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-          }`}
-        >
-          <Music className="w-4 h-4 text-fuchsia-300" />
-          <span>מוזיקה</span>
-        </button>
-
-        {/* Trimming & Cut Drawer Toggle */}
-        <button
-          onClick={() => setActiveEditorDrawer(prev => prev === 'trim' ? 'none' : 'trim')}
-          title="חיתוך קצוות ושתיקות"
-          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-            activeEditorDrawer === 'trim' || hasCustomTrim ? 'bg-indigo-600/50 border-indigo-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-          }`}
-        >
-          <Scissors className="w-4 h-4 text-sky-300" />
-          <span>חיתוך</span>
-        </button>
-
-        {/* Media Overlays (B-Roll) */}
-        <button
-          onClick={() => setIsOverlayDrawerOpen(true)}
-          title="שכבות תמונות, הוק פתיחה ו-B-Roll"
-          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-            visualOverlays.length > 0 ? 'bg-sky-600/40 border-sky-400 text-white' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-          }`}
-        >
-          <ImageIcon className="w-4 h-4 text-sky-300" />
-          <span>שכבות</span>
-        </button>
-
-        {/* Social Safe Zones Toggle */}
-        {exportAspectRatio === '9:16' && (
-          <button
-            onClick={() => setShowSafeZones(prev => !prev)}
-            title="אזורי בטיחות לסושיאל (TikTok / Reels / Shorts)"
-            className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-              showSafeZones ? 'bg-rose-500/30 border-rose-400 text-rose-300' : 'bg-black/60 border-white/20 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Shield className="w-4 h-4 text-rose-400" />
-            <span>בטיחות</span>
-          </button>
-        )}
-
-        {/* SRT Download */}
-        {captions.length > 0 && (
-          <button
-            onClick={handleExportSRT}
-            title="הורד קובץ כתוביות SRT"
-            className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
-          >
-            <FileText className="w-4 h-4 text-slate-300" />
-            <span>SRT</span>
-          </button>
-        )}
-      </div>
-
-      {/* 4. SLIDE-UP TRANSLUCENT BOTTOM SHEETS (CapCut / TikTok Style Drawers) */}
-      {activeEditorDrawer !== 'none' && (
-        <div className="absolute bottom-0 inset-x-0 z-40 max-h-[62vh] bg-slate-900/95 backdrop-blur-2xl rounded-t-3xl border-t border-slate-700/80 p-4 sm:p-5 shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-300 text-white text-xs">
-          
-          {/* Drawer Top Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3 shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-sm sm:text-base flex items-center gap-2">
-                {activeEditorDrawer === 'captions' && <><Subtitles className="w-4 h-4 text-indigo-400" /> עריכת כתוביות ({captions.length})</>}
-                {activeEditorDrawer === 'style' && <><Palette className="w-4 h-4 text-amber-400" /> עיצוב כתוביות וכותרת עליונה</>}
-                {activeEditorDrawer === 'music' && <><Music className="w-4 h-4 text-fuchsia-400" /> מוזיקת רקע ומיקס סאונד</>}
-                {activeEditorDrawer === 'trim' && <><Scissors className="w-4 h-4 text-sky-400" /> חיתוך קצוות ושתיקות</>}
-              </span>
+                <button
+                  onClick={() => setActiveEditorDrawer('none')}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer"
+                  title="סגור חלונית"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Drawer Content Body */}
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
+
+              {/* Captions Drawer Content */}
               {activeEditorDrawer === 'captions' && (
-                <>
-                  <button
-                    onClick={addCaption}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> הוסף כתובית
-                  </button>
+                <div className="space-y-2.5">
+                  {/* Timing Shift Helpers */}
                   {captions.length > 0 && (
-                    <button
-                      onClick={handleProofreadCaptions}
-                      disabled={isProofreading}
-                      className="px-2.5 py-1 bg-indigo-950 border border-indigo-500/40 text-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    >
-                      {isProofreading ? <Loader className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-indigo-300" />}
-                      <span>הגהת כתיב AI</span>
-                    </button>
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 rounded-xl bg-black/40 border border-white/10 text-[10px]">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-400 font-bold ml-0.5">הזזה:</span>
+                        <button onClick={() => shiftAllCaptions(-0.1)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">-0.1s</button>
+                        <button onClick={() => shiftAllCaptions(0.1)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">+0.1s</button>
+                        <button onClick={() => shiftAllCaptions(0.5)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">+0.5s</button>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button onClick={handleSplitLongCaptions} className="px-1.5 py-0.5 bg-indigo-950 border border-indigo-500/30 rounded text-indigo-300 hover:text-white cursor-pointer">פצל</button>
+                        <button onClick={snapCaptionsContiguous} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">הצמד</button>
+                      </div>
+                    </div>
                   )}
-                </>
+
+                  {/* Captions List */}
+                  {captions.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400">
+                      <p className="font-bold mb-2">אין כתוביות כרגע לסרטון זה.</p>
+                      <button
+                        onClick={handleAutoCaptions}
+                        disabled={isGeneratingCaptions}
+                        className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 text-white rounded-xl font-bold text-xs shadow cursor-pointer"
+                      >
+                        ✨ תמלל אוטומטית עכשיו בעזרת AI
+                      </button>
+                    </div>
+                  ) : (
+                    captions.map((cap, idx) => {
+                      const isCurrentActive = captionIsActive(cap, currentTime);
+                      return (
+                        <div
+                          key={cap.id}
+                          className={`p-2.5 rounded-xl border transition-all ${
+                            isCurrentActive ? 'bg-indigo-950/60 border-indigo-500/80 shadow-md' : 'bg-slate-800/40 border-slate-700/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-slate-700 text-[9px] font-bold text-slate-300 flex items-center justify-center">
+                                {idx + 1}
+                              </span>
+                              <button
+                                onClick={() => playCaptionSegment(cap)}
+                                className="px-1.5 py-0.5 bg-slate-700/70 hover:bg-indigo-600 text-[9.5px] font-bold rounded flex items-center gap-1 cursor-pointer"
+                              >
+                                <Play className="w-2 h-2 fill-current" />
+                                <span>{cap.start.toFixed(2)}s - {cap.end.toFixed(2)}s</span>
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setCaptionStartToCurrent(cap.id)}
+                                className="px-1.5 py-0.5 bg-indigo-600/80 hover:bg-indigo-500 text-white text-[9.5px] font-bold rounded cursor-pointer"
+                              >
+                                התחל כאן
+                              </button>
+                              <button
+                                onClick={() => deleteCaption(cap.id)}
+                                className="p-0.5 text-slate-500 hover:text-rose-400 cursor-pointer"
+                                title="מחק כתובית"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <input
+                            type="text"
+                            dir="rtl"
+                            value={cap.text}
+                            onChange={(e) => updateCaptionText(cap.id, e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               )}
 
+              {/* Subtitle Style & Headline Drawer Content */}
+              {activeEditorDrawer === 'style' && (
+                <div className="space-y-3.5">
+                  {/* Top Headline Hook Banner */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 mb-1">
+                      <Type className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>כותרת עליונה קבועה (Headline Hook Bar):</span>
+                    </label>
+                    <input
+                      type="text"
+                      dir="rtl"
+                      value={headlineText}
+                      onChange={(e) => setHeadlineText(e.target.value)}
+                      placeholder="למשל: למה כשהילד צועק הוא בעצם נבהל?"
+                      className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-white outline-none placeholder:text-slate-500"
+                    />
+                  </div>
+
+                  {/* Style Selector Grid */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-300 block mb-1.5">בחר סגנון קריוקי:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSubtitleStyle('karaoke-yellow')}
+                        className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                          subtitleStyle === 'karaoke-yellow' ? 'bg-amber-400/20 border-amber-400 text-amber-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#FFE600]" />
+                        <span>🟨 צהוב ויראלי (Hormozi)</span>
+                      </button>
+
+                      <button
+                        onClick={() => setSubtitleStyle('karaoke-brand-cyan')}
+                        className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                          subtitleStyle === 'karaoke-brand-cyan' ? 'bg-sky-500/20 border-sky-400 text-sky-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#38BDF8]" />
+                        <span>🔷 תכלת מותג</span>
+                      </button>
+
+                      <button
+                        onClick={() => setSubtitleStyle('karaoke-clean-floating')}
+                        className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                          subtitleStyle === 'karaoke-clean-floating' ? 'bg-indigo-600/30 border-indigo-400 text-white shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span>🫧 קריוקי צף נקי</span>
+                      </button>
+
+                      <button
+                        onClick={() => setSubtitleStyle('karaoke-brand-coral')}
+                        className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                          subtitleStyle === 'karaoke-brand-coral' ? 'bg-rose-500/20 border-rose-400 text-rose-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#FB7185]" />
+                        <span>💖 קורל חם</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/40 border border-white/10">
+                    <span className="font-bold text-xs">הדגשת מילה פעילה (קריוקי חי)</span>
+                    <input
+                      type="checkbox"
+                      checked={karaokeEnabled}
+                      onChange={(e) => setKaraokeEnabled(e.target.checked)}
+                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Music & Audio Mix Drawer Content */}
+              {activeEditorDrawer === 'music' && (
+                <div className="space-y-3.5">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/40 border border-white/10">
+                    <div className="flex items-center gap-2">
+                      <Music className="w-4 h-4 text-fuchsia-400" />
+                      <div>
+                        <div className="font-bold text-white text-xs">פס קול רקע (MP3/MP4)</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[160px]">{musicFile ? musicFile.name : 'לא נבחר קובץ מוזיקה'}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => musicFileInputRef.current?.click()}
+                        className="px-2.5 py-1 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        {musicFile ? 'החלף' : 'בחר מוזיקה'}
+                      </button>
+                      {musicFile && (
+                        <button
+                          onClick={removeMusic}
+                          className="p-1 bg-rose-950/60 border border-rose-500/40 text-rose-300 rounded-lg cursor-pointer"
+                          title="הסר מוזיקה"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-slate-300 mb-1 text-[11px]">
+                      <span>עוצמת דיבור (קול מקורי):</span>
+                      <span className="font-bold text-sky-400">{Math.round(sourceVolume * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={sourceVolume}
+                      onChange={(e) => setSourceVolume(Number(e.target.value))}
+                      className="w-full accent-sky-500 cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-slate-300 mb-1 text-[11px]">
+                      <span>עוצמת מוזיקת רקע:</span>
+                      <span className="font-bold text-fuchsia-400">{Math.round(musicVolume * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={musicVolume}
+                      disabled={!musicFile}
+                      onChange={(e) => setMusicVolume(Number(e.target.value))}
+                      className="w-full accent-fuchsia-500 cursor-pointer disabled:opacity-40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Trimming Drawer Content */}
+              {activeEditorDrawer === 'trim' && (
+                <div className="space-y-3.5">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/40 border border-white/10">
+                    <span className="font-bold text-white text-xs">חיתוך שתיקות אוטומטי</span>
+                    <button
+                      onClick={handleAutoDetectSilence}
+                      disabled={isDetectingSilence}
+                      className="px-3 py-1 bg-gradient-to-r from-indigo-950 to-rose-950 border border-indigo-500/50 text-indigo-200 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {isDetectingSilence ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+                      <span>חתוך שתיקות ✂️</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <button
+                      onClick={() => {
+                        setTrimStart(Number(currentTime.toFixed(2)));
+                        setHasCustomTrim(true);
+                      }}
+                      className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold cursor-pointer"
+                    >
+                      התחלה: {trimStart.toFixed(1)}s
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTrimEnd(Number(currentTime.toFixed(2)));
+                        setHasCustomTrim(true);
+                      }}
+                      className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold cursor-pointer"
+                    >
+                      סיום: {(trimEnd || duration).toFixed(1)}s
+                    </button>
+                  </div>
+
+                  {hasCustomTrim && (
+                    <button
+                      onClick={() => {
+                        setTrimStart(0);
+                        setTrimEnd(duration);
+                        setHasCustomTrim(false);
+                      }}
+                      className="w-full py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl font-bold text-xs cursor-pointer"
+                    >
+                      אפס חיתוך
+                    </button>
+                  )}
+
+                  <div>
+                    <div className="flex justify-between text-slate-300 mb-1 text-[11px]">
+                      <span>בהירות וידאו:</span>
+                      <span className="font-bold text-amber-300">{Math.round(brightness * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.8"
+                      max="1.4"
+                      step="0.05"
+                      value={brightness}
+                      onChange={(e) => setBrightness(parseFloat(e.target.value))}
+                      className="w-full accent-amber-400 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
+
+        {/* 5. FLOATING BOTTOM GLASS SCRUBBER & PLAY BAR - ANCHORED INSIDE STAGE */}
+        <div className={`absolute bottom-4 inset-x-3 sm:inset-x-6 z-30 pointer-events-auto transition-all duration-300 ${
+          isUiHidden || activeEditorDrawer !== 'none' ? 'opacity-0 pointer-events-none translate-y-3' : 'opacity-100 translate-y-0'
+        }`}>
+          <div className="bg-black/65 backdrop-blur-xl border border-white/20 px-3.5 py-2 rounded-2xl shadow-2xl flex items-center gap-2.5">
+            <button
+              onClick={togglePlay}
+              className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer shrink-0"
+              title={isPlaying ? 'השהה' : 'נגן'}
+            >
+              {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+            </button>
+
+            <input
+              type="range"
+              min="0"
+              max={duration || 100}
+              step="0.05"
+              value={currentTime}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setCurrentTime(val);
+                if (videoRef.current) {
+                  videoRef.current.currentTime = val;
+                }
+              }}
+              className="flex-1 accent-indigo-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+            />
+
+            <span className="text-[10px] font-mono font-bold text-slate-300 whitespace-nowrap shrink-0">
+              {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+            </span>
+          </div>
+        </div>
+
+        {/* Floating Eye indicator when UI is hidden */}
+        {isUiHidden && (
+          <button
+            onClick={() => setIsUiHidden(false)}
+            className="absolute bottom-4 right-4 z-40 p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
+            title="הצג סרגלים"
+          >
+            <Eye className="w-4 h-4 text-cyan-300" />
+          </button>
+        )}
+
+      </div>
+
+      {/* Zero-Bloat Modular Visual Overlays Drawer Modal */}
+      {isOverlayDrawerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 text-white">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-sky-400" />
+                <h3 className="text-base font-bold text-white">שכבות מדיה ויזואליות (B-Roll & Hook)</h3>
+              </div>
               <button
-                onClick={() => setActiveEditorDrawer('none')}
-                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer"
-                title="סגור חלונית"
+                onClick={() => setIsOverlayDrawerOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end">
+              <button
+                onClick={() => setIsOverlayDrawerOpen(false)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                סגור ושמור שינויים
               </button>
             </div>
           </div>
-
-          {/* Drawer Content Body */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3.5 pr-1">
-
-            {/* Captions Drawer Content */}
-            {activeEditorDrawer === 'captions' && (
-              <div className="space-y-3">
-                {/* Timing Shift Helpers */}
-                {captions.length > 0 && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-black/40 border border-white/10 text-[11px]">
-                    <div className="flex items-center gap-1">
-                      <span className="text-slate-400 font-bold ml-1">הזזת כל הזמנים:</span>
-                      <button onClick={() => shiftAllCaptions(-0.1)} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">-0.1s</button>
-                      <button onClick={() => shiftAllCaptions(0.1)} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">+0.1s</button>
-                      <button onClick={() => shiftAllCaptions(0.5)} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">+0.5s</button>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={handleSplitLongCaptions} className="px-2 py-0.5 bg-indigo-950 border border-indigo-500/30 rounded text-indigo-300 hover:text-white cursor-pointer">פצל ארוכות</button>
-                      <button onClick={snapCaptionsContiguous} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-200 cursor-pointer">הצמד רצף</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Captions List */}
-                {captions.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400">
-                    <p className="font-bold mb-3">עדיין לא נוצרו כתוביות לסרטון זה.</p>
-                    <button
-                      onClick={handleAutoCaptions}
-                      disabled={isGeneratingCaptions}
-                      className="px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 text-white rounded-xl font-bold text-xs shadow cursor-pointer"
-                    >
-                      ✨ תמלל אוטומטית עכשיו בעזרת AI
-                    </button>
-                  </div>
-                ) : (
-                  captions.map((cap, idx) => {
-                    const isCurrentActive = captionIsActive(cap, currentTime);
-                    return (
-                      <div
-                        key={cap.id}
-                        className={`p-3 rounded-2xl border transition-all ${
-                          isCurrentActive ? 'bg-indigo-950/60 border-indigo-500/80 shadow-md' : 'bg-slate-800/40 border-slate-700/60'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="w-5 h-5 rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 flex items-center justify-center">
-                              {idx + 1}
-                            </span>
-                            <button
-                              onClick={() => playCaptionSegment(cap)}
-                              className="px-2 py-0.5 bg-slate-700/70 hover:bg-indigo-600 text-[10px] font-bold rounded flex items-center gap-1 cursor-pointer"
-                            >
-                              <Play className="w-2.5 h-2.5 fill-current" />
-                              <span>{cap.start.toFixed(2)}s - {cap.end.toFixed(2)}s</span>
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => setCaptionStartToCurrent(cap.id)}
-                              className="px-2 py-0.5 bg-indigo-600/80 hover:bg-indigo-500 text-white text-[10px] font-bold rounded cursor-pointer"
-                            >
-                              התחל כאן
-                            </button>
-                            <button
-                              onClick={() => deleteCaption(cap.id)}
-                              className="p-1 text-slate-500 hover:text-rose-400 cursor-pointer"
-                              title="מחק כתובית"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <input
-                          type="text"
-                          dir="rtl"
-                          value={cap.text}
-                          onChange={(e) => updateCaptionText(cap.id, e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none"
-                        />
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-
-            {/* Subtitle Style & Headline Drawer Content */}
-            {activeEditorDrawer === 'style' && (
-              <div className="space-y-4">
-                {/* Top Headline Hook Banner */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 mb-1.5">
-                    <Type className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>כותרת עליונה קבועה (Headline Hook Bar):</span>
-                  </label>
-                  <input
-                    type="text"
-                    dir="rtl"
-                    value={headlineText}
-                    onChange={(e) => setHeadlineText(e.target.value)}
-                    placeholder="למשל: למה כשהילד צועק הוא בעצם נבהל?"
-                    className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-white outline-none placeholder:text-slate-500"
-                  />
-                </div>
-
-                {/* Style Selector Grid */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-2">בחר סגנון קריוקי:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setSubtitleStyle('karaoke-yellow')}
-                      className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
-                        subtitleStyle === 'karaoke-yellow' ? 'bg-amber-400/20 border-amber-400 text-amber-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      <span className="w-3 h-3 rounded-full bg-[#FFE600]" />
-                      <span>🟨 צהוב ויראלי (Hormozi)</span>
-                    </button>
-
-                    <button
-                      onClick={() => setSubtitleStyle('karaoke-brand-cyan')}
-                      className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
-                        subtitleStyle === 'karaoke-brand-cyan' ? 'bg-sky-500/20 border-sky-400 text-sky-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      <span className="w-3 h-3 rounded-full bg-[#38BDF8]" />
-                      <span>🔷 תכלת מותג (מצפן הלב)</span>
-                    </button>
-
-                    <button
-                      onClick={() => setSubtitleStyle('karaoke-clean-floating')}
-                      className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
-                        subtitleStyle === 'karaoke-clean-floating' ? 'bg-indigo-600/30 border-indigo-400 text-white shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      <span>🫧 קריוקי צף נקי</span>
-                    </button>
-
-                    <button
-                      onClick={() => setSubtitleStyle('karaoke-brand-coral')}
-                      className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
-                        subtitleStyle === 'karaoke-brand-coral' ? 'bg-rose-500/20 border-rose-400 text-rose-300 shadow' : 'bg-slate-800/60 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      <span className="w-3 h-3 rounded-full bg-[#FB7185]" />
-                      <span>💖 קורל חם (רגש ולב)</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-black/40 border border-white/10">
-                  <span className="font-bold">הדגשת מילה פעילה (קריוקי חי)</span>
-                  <input
-                    type="checkbox"
-                    checked={karaokeEnabled}
-                    onChange={(e) => setKaraokeEnabled(e.target.checked)}
-                    className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Music & Audio Mix Drawer Content */}
-            {activeEditorDrawer === 'music' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-black/40 border border-white/10">
-                  <div className="flex items-center gap-2">
-                    <Music className="w-4 h-4 text-fuchsia-400" />
-                    <div>
-                      <div className="font-bold text-white">פס קול רקע (MP3/MP4)</div>
-                      <div className="text-[10px] text-slate-400 truncate max-w-[200px]">{musicFile ? musicFile.name : 'לא נבחר קובץ מוזיקה'}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => musicFileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-xl text-xs font-bold cursor-pointer"
-                    >
-                      {musicFile ? 'החלף' : 'בחר מוזיקה'}
-                    </button>
-                    {musicFile && (
-                      <button
-                        onClick={removeMusic}
-                        className="p-1.5 bg-rose-950/60 border border-rose-500/40 text-rose-300 rounded-xl cursor-pointer"
-                        title="הסר מוזיקה"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-slate-300 mb-1">
-                    <span>עוצמת דיבור (קול מקורי):</span>
-                    <span className="font-bold text-sky-400">{Math.round(sourceVolume * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={sourceVolume}
-                    onChange={(e) => setSourceVolume(Number(e.target.value))}
-                    className="w-full accent-sky-500 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-slate-300 mb-1">
-                    <span>עוצמת מוזיקת רקע:</span>
-                    <span className="font-bold text-fuchsia-400">{Math.round(musicVolume * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={musicVolume}
-                    disabled={!musicFile}
-                    onChange={(e) => setMusicVolume(Number(e.target.value))}
-                    className="w-full accent-fuchsia-500 cursor-pointer disabled:opacity-40"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Trimming Drawer Content */}
-            {activeEditorDrawer === 'trim' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-black/40 border border-white/10">
-                  <span className="font-bold text-white">חיתוך שתיקות אוטומטי</span>
-                  <button
-                    onClick={handleAutoDetectSilence}
-                    disabled={isDetectingSilence}
-                    className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-950 to-rose-950 border border-indigo-500/50 text-indigo-200 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    {isDetectingSilence ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
-                    <span>חתוך שתיקות ✂️</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    onClick={() => {
-                      setTrimStart(Number(currentTime.toFixed(2)));
-                      setHasCustomTrim(true);
-                    }}
-                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold cursor-pointer"
-                  >
-                    קבע התחלה: {trimStart.toFixed(1)}s
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTrimEnd(Number(currentTime.toFixed(2)));
-                      setHasCustomTrim(true);
-                    }}
-                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold cursor-pointer"
-                  >
-                    קבע סיום: {(trimEnd || duration).toFixed(1)}s
-                  </button>
-                </div>
-
-                {hasCustomTrim && (
-                  <button
-                    onClick={() => {
-                      setTrimStart(0);
-                      setTrimEnd(duration);
-                      setHasCustomTrim(false);
-                    }}
-                    className="w-full py-2 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl font-bold cursor-pointer"
-                  >
-                    אפס חיתוך
-                  </button>
-                )}
-
-                <div>
-                  <div className="flex justify-between text-slate-300 mb-1">
-                    <span>בהירות וידאו:</span>
-                    <span className="font-bold text-amber-300">{Math.round(brightness * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.8"
-                    max="1.4"
-                    step="0.05"
-                    value={brightness}
-                    onChange={(e) => setBrightness(parseFloat(e.target.value))}
-                    className="w-full accent-amber-400 cursor-pointer"
-                  />
-                </div>
-              </div>
-            )}
-
-          </div>
         </div>
       )}
-
-      {/* 5. FLOATING BOTTOM GLASS SCRUBBER & PLAY BAR */}
-      <div className={`absolute bottom-4 inset-x-3 sm:inset-x-8 z-30 pointer-events-auto transition-all duration-300 ${
-        isUiHidden || activeEditorDrawer !== 'none' ? 'opacity-0 pointer-events-none translate-y-3' : 'opacity-100 translate-y-0'
-      }`}>
-        <div className="bg-black/65 backdrop-blur-xl border border-white/20 px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3">
-          <button
-            onClick={togglePlay}
-            className="w-9 h-9 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer shrink-0"
-            title={isPlaying ? 'השהה' : 'נגן'}
-          >
-            {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-          </button>
-
-          <input
-            type="range"
-            min="0"
-            max={duration || 100}
-            step="0.05"
-            value={currentTime}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              setCurrentTime(val);
-              if (videoRef.current) {
-                videoRef.current.currentTime = val;
-              }
-            }}
-            className="flex-1 accent-indigo-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
-          />
-
-          <span className="text-[11px] font-mono font-bold text-slate-300 whitespace-nowrap shrink-0">
-            {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
-          </span>
-        </div>
-      </div>
-
-      {/* Floating Eye indicator when UI is hidden */}
-      {isUiHidden && (
-        <button
-          onClick={() => setIsUiHidden(false)}
-          className="absolute bottom-4 right-4 z-40 p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
-          title="הצג סרגלים"
-        >
-          <Eye className="w-5 h-5 text-cyan-300" />
-        </button>
-      )}
-
-      {isOverlayDrawerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
-            
-            {/* Drawer Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-              <div className="flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-sky-400" />
-                <h3 className="text-base font-bold text-white">שכבות מדיה ויזואליות (B-Roll & Hook)</h3>
-              </div>
-              <button
-                onClick={() => setIsOverlayDrawerOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Drawer Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              
-              {/* Quick Preset Actions */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400">הוסף שכבה חדשה:</span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  
-                  {/* Hook Cover Card */}
-                  <label className="flex flex-col items-center justify-center p-3.5 bg-gradient-to-br from-amber-500/10 to-indigo-500/10 hover:from-amber-500/20 hover:to-indigo-500/20 border border-amber-500/30 rounded-xl cursor-pointer transition-all text-center group">
-                    <Sparkles className="w-6 h-6 text-amber-400 mb-1.5 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold text-white">הוק פתיחה</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">0.0s עד 2.5s</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleFileUpload(e, 'hook-cover')}
-                    />
-                  </label>
-
-                  {/* Full B-Roll Image */}
-                  <label className="flex flex-col items-center justify-center p-3.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700 rounded-xl cursor-pointer transition-all text-center group">
-                    <ImageIcon className="w-6 h-6 text-sky-400 mb-1.5 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold text-white">B-Roll מלא</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">כיסוי מלא ברקע</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleFileUpload(e, 'b-roll-full')}
-                    />
-                  </label>
-
-                  {/* Corner PiP Card */}
-                  <label className="flex flex-col items-center justify-center p-3.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700 rounded-xl cursor-pointer transition-all text-center group">
-                    <Layers className="w-6 h-6 text-emerald-400 mb-1.5 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold text-white">חלון צף (PiP)</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">תמונה פינתית צפה</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleFileUpload(e, 'pip-corner')}
-                    />
-                  </label>
-
-                </div>
-              </div>
-
-              {/* Active Overlays List */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400">שכבות פעילות בסרטון ({visualOverlays.length}):</span>
-                  {visualOverlays.length > 0 && (
-                    <button
-                      onClick={() => setVisualOverlays([])}
-                      className="text-[11px] text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
-                    >
-                      נקה הכל
-                    </button>
-                  )}
-                </div>
-
-                {visualOverlays.length === 0 ? (
-                  <div className="p-6 bg-slate-950/40 rounded-xl border border-dashed border-slate-800 text-center text-slate-500 text-xs">
-                    אין שכבות מדיה פעילות כרגע. לחץ על אחד הכפתורים למעלה כדי להוסיף תמונה.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {visualOverlays.map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-3 bg-slate-800/70 border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 shadow-sm"
-                      >
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={item.imageUrl}
-                            alt="thumb"
-                            className="w-12 h-12 rounded-lg object-cover border border-slate-600 bg-black shrink-0"
-                          />
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-bold text-white">{item.title}</span>
-                              <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.2 rounded font-medium">
-                                {item.type === 'hook-cover' ? 'הוק פתיחה' : (item.type === 'pip-corner' ? 'PiP' : 'B-Roll')}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-400">
-                              <span>התחלה:</span>
-                              <input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                value={item.startTime}
-                                onChange={(e) => updateOverlayTimes(item.id, parseFloat(e.target.value) || 0, item.endTime)}
-                                className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-center font-bold"
-                              />
-                              <span>סיום:</span>
-                              <input
-                                type="number"
-                                step="0.1"
-                                min="0.5"
-                                value={item.endTime}
-                                onChange={(e) => updateOverlayTimes(item.id, item.startTime, parseFloat(e.target.value) || 0)}
-                                className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-center font-bold"
-                              />
-                              <span>שניות</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => removeVisualOverlay(item.id)}
-                          className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
-                          title="מחק שכבה"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-            </div>
-
-            {/* Drawer Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end">
-              <button
-                onClick={() => setIsOverlayDrawerOpen(false)}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                סגור ושמור שינויים
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* Hidden file input for media overlays */}
       <input
