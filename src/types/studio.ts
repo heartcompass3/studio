@@ -98,3 +98,14 @@ export interface BackgroundVisualConfig {
   slideDurationSec: number;
   gradientTheme?: string;
 }
+
+
+export interface StudioTake {
+  id: string;
+  takeNumber: number;
+  blob: Blob;
+  url: string;
+  duration: number;
+  timestamp: number;
+  isFavorite?: boolean;
+}

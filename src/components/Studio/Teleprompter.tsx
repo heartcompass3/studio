@@ -10,7 +10,9 @@ export interface TeleprompterProps {
   isCameraActive: boolean;
   isMirrored?: boolean;
   eyeContactAnchor?: boolean;
+  voiceTrackEnabled?: boolean;
   restartSignal?: number;
+  onToggleVoiceTrack?: (enabled: boolean) => void;
   onToggleScroll?: () => void;
   onRestart?: () => void;
   onSpeedChange?: (speed: number) => void;
@@ -27,7 +29,9 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   isCameraActive,
   isMirrored = false,
   eyeContactAnchor = false,
+  voiceTrackEnabled = false,
   restartSignal = 0,
+  onToggleVoiceTrack,
   onToggleScroll,
   onRestart,
   onSpeedChange,
@@ -167,6 +171,99 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
     updateBounds();
   }, [text, restartSignal, updateBounds]);
 
+  const [voiceSyncActive, setVoiceSyncActive] = useState(voiceTrackEnabled);
+  const [isListeningSpeech, setIsListeningSpeech] = useState(false);
+
+  useEffect(() => {
+    setVoiceSyncActive(voiceTrackEnabled);
+  }, [voiceTrackEnabled]);
+
+  // AI Voice-Tracking: Uses Web SpeechRecognition (he-IL) to match spoken words to lines
+  useEffect(() => {
+    if (!isScrolling || !voiceSyncActive) {
+      setIsListeningSpeech(false);
+      return;
+    }
+
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setIsListeningSpeech(false);
+      return;
+    }
+
+    let recognition: any;
+    let isStopped = false;
+
+    try {
+      recognition = new SpeechRec();
+      recognition.lang = 'he-IL';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        if (!isStopped) setIsListeningSpeech(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        if (isStopped || !event.results || event.results.length === 0) return;
+        const lastResult = event.results[event.results.length - 1];
+        const spokenText = lastResult[0]?.transcript?.trim().toLowerCase();
+        if (!spokenText) return;
+
+        const words = spokenText.split(/\s+/).filter((w: string) => w.length >= 2);
+        if (words.length === 0) return;
+
+        // Search for matching paragraph in script
+        let bestParagraphIdx = -1;
+        let maxMatches = 0;
+
+        paragraphs.forEach((p, idx) => {
+          const lowerP = p.toLowerCase();
+          let matches = 0;
+          for (const w of words) {
+            if (lowerP.includes(w)) matches++;
+          }
+          if (matches > maxMatches) {
+            maxMatches = matches;
+            bestParagraphIdx = idx;
+          }
+        });
+
+        if (bestParagraphIdx >= 0 && maxMatches >= 1) {
+          const targetRatio = bestParagraphIdx / Math.max(1, paragraphs.length - 1);
+          const targetOffset = targetRatio * maxScroll;
+          currentOffsetRef.current = targetOffset;
+          startOffsetRef.current = targetOffset;
+          startTimeRef.current = performance.now();
+          setOffsetY(targetOffset);
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsListeningSpeech(false);
+      };
+
+      recognition.onend = () => {
+        if (!isStopped && isScrolling && voiceSyncActive) {
+          try { recognition.start(); } catch {}
+        }
+      };
+
+      recognition.start();
+    } catch {
+      setIsListeningSpeech(false);
+    }
+
+    return () => {
+      isStopped = true;
+      if (recognition) {
+        try { recognition.stop(); } catch {}
+      }
+      setIsListeningSpeech(false);
+    };
+  }, [isScrolling, voiceSyncActive, paragraphs, maxScroll]);
+
   const handleRestart = useCallback(() => {
     currentOffsetRef.current = 0;
     startOffsetRef.current = 0;
@@ -270,15 +367,43 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   return (
     <div className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden">
       
-      {/* Eye-Level Reading Focus Guide */}
+      {/* Eye-Level Reading Focus Guide + Voice Track Badge */}
       {showFocusGuide && (
-        <div className={`absolute ${eyeContactAnchor ? 'top-[16%]' : 'top-[35%]'} left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-4 transition-all duration-300 ${eyeContactAnchor ? 'opacity-90' : 'opacity-75'}`}>
-          <div className={`h-[2px] w-14 bg-gradient-to-r from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`} />
-          <div className={`px-2.5 py-0.5 rounded-full border text-[10px] font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 ${eyeContactAnchor ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300' : 'bg-amber-500/20 border-amber-400/40 text-amber-300'}`}>
-            <Eye className={`w-3 h-3 ${eyeContactAnchor ? 'text-cyan-300' : 'text-amber-400'}`} />
-            <span>{eyeContactAnchor ? '🎯 עוגן מבט לעדשה' : 'גובה קריאה מול העדשה'}</span>
+        <div className={`absolute ${eyeContactAnchor ? 'top-[16%]' : 'top-[35%]'} left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-3 sm:px-6 transition-all duration-300 ${eyeContactAnchor ? 'opacity-95' : 'opacity-85'}`}>
+          <div className="flex items-center gap-2">
+            <div className={`h-[2px] w-8 sm:w-14 bg-gradient-to-r from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80'}`} />
+            <div className={`px-2 py-0.5 rounded-full border text-[10px] font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 ${eyeContactAnchor ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300' : 'bg-amber-500/20 border-amber-400/40 text-amber-300'}`}>
+              <Eye className={`w-3 h-3 ${eyeContactAnchor ? 'text-cyan-300' : 'text-amber-400'}`} />
+              <span>{eyeContactAnchor ? '🎯 עוגן עדשה' : 'גובה קריאה'}</span>
+            </div>
           </div>
-          <div className={`h-[2px] w-14 bg-gradient-to-l from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`} />
+
+          {/* Interactive Voice Track Indicator / Toggle */}
+          <button
+            onClick={() => {
+              const nextState = !voiceSyncActive;
+              setVoiceSyncActive(nextState);
+              if (onToggleVoiceTrack) onToggleVoiceTrack(nextState);
+            }}
+            className={`pointer-events-auto px-2.5 py-0.5 rounded-full border text-[10px] font-black backdrop-blur-md shadow-sm flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
+              voiceSyncActive
+                ? isListeningSpeech
+                  ? 'bg-emerald-500/30 border-emerald-400 text-emerald-300 shadow-emerald-500/30 animate-pulse'
+                  : 'bg-cyan-500/25 border-cyan-400 text-cyan-200 shadow-cyan-500/20'
+                : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+            title="לחץ להפעלת/השבתת מעקב קול AI (גולל בהתאם לקצב הדיבור שלך)"
+          >
+            <Sparkles className="w-3 h-3 text-cyan-300" />
+            <span>{voiceSyncActive ? (isListeningSpeech ? '🗣️ מקשיב לדיבור...' : '🗣️ מעקב קול פעיל') : '🗣️ מעקב קול: כבוי'}</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-slate-400/80 bg-black/50 px-2 py-0.5 rounded-full">
+              {formatTime(elapsedSecEstimated)}/{formatTime(totalEstimatedSec)}
+            </span>
+            <div className={`h-[2px] w-8 sm:w-14 bg-gradient-to-l from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80'}`} />
+          </div>
         </div>
       )}
 

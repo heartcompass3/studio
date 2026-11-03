@@ -6,12 +6,12 @@ import {
   FlipHorizontal, Eye, ZoomIn, ZoomOut, Image as ImageIcon,
   Sparkles, Upload, Sun, Check, Sparkle, ArrowLeft, ArrowRight,
   Gauge, Type, Video, Layers, Palette, Plus, Trash2, Music,
-  RefreshCw, Scan, X
+  RefreshCw, Scan, X, Star, Clapperboard, Timer
 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 import { Teleprompter } from './Teleprompter';
 import { generateAudioFromText } from '../../services/geminiService';
-import { VideoAspectRatio, RecordingMode, BackgroundSourceType, BackgroundSlide } from '../../types/studio';
+import { VideoAspectRatio, RecordingMode, BackgroundSourceType, BackgroundSlide, StudioTake } from '../../types/studio';
 import { fixWebmDuration } from '../../services/webmFixer';
 import { createBoostedAudioPipeline, BoostedAudioResult } from '../../services/audioService';
 import { VoiceAudioEffects, VOICE_AUDIO_PRESETS } from '../../services/meditationAudio';
@@ -83,6 +83,35 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [selectedGradient, setSelectedGradient] = useState(PRESET_GRADIENTS[0].id);
   const [isAudioOnlyRecording, setIsAudioOnlyRecording] = useState(false);
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
+
+  // Multi-Take Studio System (Round 2)
+  const [takes, setTakes] = useState<StudioTake[]>([]);
+  const [selectedTakeId, setSelectedTakeId] = useState<string | null>(null);
+
+  // Next-Gen Controls: Clapper Beeps, Countdown, Hands-Free Trigger, Voice Tracking
+  const [countdownDuration, setCountdownDuration] = useState<number>(3); // 0, 3, 5, 10
+  const [clapTriggerActive, setClapTriggerActive] = useState<boolean>(false);
+  const [voiceTrackMode, setVoiceTrackMode] = useState<boolean>(false);
+  const clapDetectorRef = useRef<{ cleanup: () => void } | null>(null);
+
+  const playStudioBeep = (frequency: number, durationMs: number) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + durationMs / 1000);
+      setTimeout(() => { ctx.close().catch(() => {}); }, durationMs + 80);
+    } catch {}
+  };
 
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -405,17 +434,27 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           onError('עיבוד השמע לא הופעל. ההקלטה תישמר עם קול המיקרופון המקורי.');
         }
       }
-      let remaining = 3;
-      setCountdown(remaining);
-      countdownTimerRef.current = setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-          countdownTimerRef.current = null;
-          setCountdown(null);
-          void triggerActualRecording();
-        } else setCountdown(remaining);
-      }, 1000);
+      let remaining = countdownDuration;
+      if (remaining <= 0) {
+        playStudioBeep(880, 160);
+        void triggerActualRecording();
+      } else {
+        setCountdown(remaining);
+        playStudioBeep(440, 90);
+        countdownTimerRef.current = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+            setCountdown(null);
+            playStudioBeep(880, 180);
+            void triggerActualRecording();
+          } else {
+            setCountdown(remaining);
+            playStudioBeep(440, 90);
+          }
+        }, 1000);
+      }
     } finally {
       recordingStartingRef.current = false;
     }
@@ -618,6 +657,19 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const fixedBlob = isWebm ? await fixWebmDuration(rawBlob, exactDurationSecs * 1000) : rawBlob;
       const url = URL.createObjectURL(fixedBlob);
 
+      const takeNumber = takes.length + 1;
+      const newTake: StudioTake = {
+        id: `take_${Date.now()}_${takeNumber}`,
+        takeNumber,
+        blob: fixedBlob,
+        url,
+        duration: exactDurationSecs,
+        timestamp: Date.now(),
+        isFavorite: takes.length === 0,
+      };
+
+      setTakes(prev => [...prev, newTake]);
+      setSelectedTakeId(newTake.id);
       setRecordedBlob(fixedBlob);
       setRecordedUrl(url);
       setIsScrolling(false);
@@ -648,6 +700,121 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   };
 
   
+  const handleSelectTake = (take: StudioTake) => {
+    setSelectedTakeId(take.id);
+    setRecordedBlob(take.blob);
+    setRecordedUrl(take.url);
+    onVideoRecorded(take.blob, take.url, take.duration);
+  };
+
+  const handleToggleFavoriteTake = (takeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTakes(prev => prev.map(t => t.id === takeId ? { ...t, isFavorite: !t.isFavorite } : t));
+  };
+
+  const handleDeleteTake = (takeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTakes(prev => {
+      const remaining = prev.filter(t => t.id !== takeId);
+      if (selectedTakeId === takeId) {
+        if (remaining.length > 0) {
+          const nextTake = remaining[remaining.length - 1];
+          setSelectedTakeId(nextTake.id);
+          setRecordedBlob(nextTake.blob);
+          setRecordedUrl(nextTake.url);
+          onVideoRecorded(nextTake.blob, nextTake.url, nextTake.duration);
+        } else {
+          setSelectedTakeId(null);
+          setRecordedBlob(null);
+          setRecordedUrl(null);
+          if (studioMode === 'camera') startCamera();
+          else startMic();
+        }
+      }
+      return remaining;
+    });
+  };
+
+  const handleNewTake = () => {
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setTeleprompterRestartSignal(prev => prev + 1);
+    if (studioMode === 'camera') {
+      startCamera();
+    } else {
+      startMic();
+    }
+  };
+
+  // Sound-Activated Clap Detector
+  useEffect(() => {
+    if (!clapTriggerActive || isRecording || countdown !== null || recordedUrl) {
+      if (clapDetectorRef.current) {
+        clapDetectorRef.current.cleanup();
+        clapDetectorRef.current = null;
+      }
+      return;
+    }
+
+    const stream = studioMode === 'camera' ? streamRef.current : micStreamRef.current;
+    if (!stream) return;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      let isDestroyed = false;
+      let animId: number;
+      let prevVolume = 0;
+      let cooldownUntil = 0;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const checkVolumeClap = () => {
+        if (isDestroyed) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        const now = performance.now();
+
+        if (now > cooldownUntil && avg > 65 && (avg - prevVolume) > 35) {
+          cooldownUntil = now + 2500;
+          handleStartRecording();
+        }
+
+        prevVolume = avg;
+        animId = requestAnimationFrame(checkVolumeClap);
+      };
+
+      animId = requestAnimationFrame(checkVolumeClap);
+
+      clapDetectorRef.current = {
+        cleanup: () => {
+          isDestroyed = true;
+          cancelAnimationFrame(animId);
+          try { source.disconnect(); } catch {}
+          try { ctx.close(); } catch {}
+        }
+      };
+    } catch {}
+
+    return () => {
+      if (clapDetectorRef.current) {
+        clapDetectorRef.current.cleanup();
+        clapDetectorRef.current = null;
+      }
+    };
+  }, [clapTriggerActive, isRecording, countdown, recordedUrl, studioMode, isCameraActive, micStream]);
+
   const handleOpenEditor = () => {
     stopCamera();
     stopMic();
@@ -878,6 +1045,32 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 <span className="hidden sm:inline">{eyeContactAnchor ? 'עוגן עדשה ✓' : 'עוגן עדשה'}</span>
               </button>
             )}
+
+          {/* Countdown Duration Picker */}
+          <button
+            onClick={() => {
+              setCountdownDuration(prev => prev === 3 ? 5 : prev === 5 ? 10 : prev === 10 ? 0 : 3);
+            }}
+            title="ספירה לאחור עם צליל קלאפר לפני הקלטה (3 / 5 / 10 שנ' / מיידי)"
+            className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer transition-all shrink-0 ml-1"
+          >
+            <Timer className="w-3.5 h-3.5 text-amber-400" />
+            <span>{countdownDuration === 0 ? 'ללא השהיה' : `${countdownDuration} שנ'`}</span>
+          </button>
+
+          {/* Hands-Free Sound Clapper Trigger */}
+          <button
+            onClick={() => setClapTriggerActive(prev => !prev)}
+            title="צילום ללא מגע: מחיאת כף מול המצלמה מפעילה את הספירה לאחור אוטומטית"
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shrink-0 ml-1 border ${
+              clapTriggerActive
+                ? 'bg-amber-500/25 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/25 animate-pulse'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">{clapTriggerActive ? '👏 מחיאת כף: פעיל' : '👏 מחיאת כף'}</span>
+          </button>
 
 
           {studioMode === 'camera' && (
@@ -1431,30 +1624,83 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           {/* Recorded Video Playback Review */}
           {recordedUrl && (
             <div className="w-full h-full relative flex items-center justify-center bg-black">
-              {/* Quick Actions Bar right on top of video for mobile & desktop */}
-              <div className="absolute top-3 inset-x-3 z-30 flex flex-wrap items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-slate-700/80 shadow-2xl">
-                <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <Check className="w-4 h-4 shrink-0" />
-                  <span>ההקלטה מוכנה!</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {onOpenOriginalEditor && (
+              {/* Multi-Take Management Tray (Round 2) */}
+              <div className="absolute top-3 inset-x-3 z-30 flex flex-col gap-2 bg-slate-900/95 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-slate-700/80 shadow-2xl">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-white flex items-center gap-1.5">
+                      <Clapperboard className="w-4 h-4 text-indigo-400" />
+                      טייקים ({takes.length}):
+                    </span>
                     <button
-                      onClick={handleOpenOriginalEditor}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
+                      onClick={handleNewTake}
+                      className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow cursor-pointer transition-all active:scale-95 border border-indigo-400/30"
+                      title="צלם טייק נוסף מבלי למחוק את הטייקים הקודמים"
                     >
-                      <span>עבור לעורך מקורי</span>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>צלם טייק נוסף (טייק {takes.length + 1})</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {onOpenOriginalEditor && (
+                      <button
+                        onClick={handleOpenOriginalEditor}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
+                      >
+                        <span>עורך מקורי</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={handleOpenEditor}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg shadow-teal-500/25 transition-all cursor-pointer"
+                    >
+                      <span>המשך לעריכה עם טייק זה</span>
                       <ArrowLeft className="w-3.5 h-3.5" />
                     </button>
-                  )}
-                  <button
-                    onClick={handleOpenEditor}
-                    className="px-3 py-1.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
-                  >
-                    <span>עבור לבימוי ועריכה (V2)</span>
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </button>
+                  </div>
                 </div>
+
+                {/* Horizontal Scrollable Takes List */}
+                {takes.length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                    {takes.map(take => {
+                      const isSelected = (selectedTakeId === take.id) || (takes.length === 1);
+                      return (
+                        <div
+                          key={take.id}
+                          onClick={() => handleSelectTake(take)}
+                          className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 cursor-pointer transition-all shrink-0 text-xs font-bold ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-indigo-600/40 to-purple-600/40 border-indigo-400 text-white shadow-md ring-1 ring-indigo-400'
+                              : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
+                          }`}
+                        >
+                          <button
+                            onClick={(e) => handleToggleFavoriteTake(take.id, e)}
+                            className="hover:scale-125 transition-transform p-0.5"
+                            title={take.isFavorite ? 'טייק מועדף ⭐' : 'סמן כמועדף'}
+                          >
+                            <Star className={`w-3.5 h-3.5 ${take.isFavorite ? 'text-amber-400 fill-amber-400' : 'text-slate-500'}`} />
+                          </button>
+                          <span>טייק {take.takeNumber}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">({Math.round(take.duration)}שנ')</span>
+                          {isSelected && <span className="text-[9px] bg-indigo-500 text-white px-1.5 py-0.2 rounded font-black">נבחר</span>}
+                          {takes.length > 1 && (
+                            <button
+                              onClick={(e) => handleDeleteTake(take.id, e)}
+                              className="text-slate-500 hover:text-rose-400 mr-1 p-0.5"
+                              title="מחק טייק זה"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <video
@@ -1499,13 +1745,32 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 isCameraActive={studioMode === 'camera' ? isCameraActive : true}
                 isMirrored={false}
                 eyeContactAnchor={eyeContactAnchor}
+                voiceTrackEnabled={voiceTrackMode}
                 restartSignal={teleprompterRestartSignal}
                 onSpeedChange={setScrollSpeed}
                 onFontSizeChange={setFontSize}
                 onOpacityChange={setTextOpacity}
+                onToggleVoiceTrack={setVoiceTrackMode}
                 onToggleScroll={() => setIsScrolling(prev => !prev)}
                 onRestart={() => setIsScrolling(true)}
               />
+            </div>
+          )}
+
+          {/* Multi-Take Banner during live camera */}
+          {!recordedUrl && takes.length > 0 && (
+            <div className="absolute top-4 left-4 z-20 pointer-events-auto">
+              <button
+                onClick={() => {
+                  const lastTake = takes[takes.length - 1];
+                  handleSelectTake(lastTake);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-indigo-500/50 text-indigo-300 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-lg backdrop-blur-md cursor-pointer transition-all"
+                title="צפה בטייקים שהוקלטו בסשן זה"
+              >
+                <Clapperboard className="w-3.5 h-3.5 text-indigo-400" />
+                <span>ישנם {takes.length} טייקים שמורים (חזור לצפייה)</span>
+              </button>
             </div>
           )}
 
