@@ -88,6 +88,10 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [takes, setTakes] = useState<StudioTake[]>([]);
   const [selectedTakeId, setSelectedTakeId] = useState<string | null>(null);
 
+  // Immersive TikTok/Reels Floating HUD Controls
+  const [isUiHidden, setIsUiHidden] = useState(false);
+  const [activeStudioDrawer, setActiveStudioDrawer] = useState<"none" | "prompter" | "audio" | "lighting" | "takes" | "broll">("none");
+
   // Next-Gen Controls: Clapper Beeps, Countdown, Hands-Free Trigger, Voice Tracking
   const [countdownDuration, setCountdownDuration] = useState<number>(3); // 0, 3, 5, 10
   const [clapTriggerActive, setClapTriggerActive] = useState<boolean>(false);
@@ -874,658 +878,24 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-95px)] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+    <div className="relative w-full h-[calc(100vh-70px)] sm:h-[calc(100vh-80px)] bg-black overflow-hidden flex items-center justify-center select-none font-sans">
       
-      {/* Top Studio Controls Bar - Mobile Horizontal Touch Ribbon */}
-      <div className="bg-slate-900/95 backdrop-blur px-3 sm:px-6 py-2.5 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar touch-pan-x z-30 shrink-0">
-        <div className="flex items-center gap-2 shrink-0">
-          
-          {/* Main Mode Toggle: Camera vs. Voiceover / Faceless */}
-          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-inner shrink-0">
-            <button
-              onClick={() => handleModeChange('camera')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                studioMode === 'camera' 
-                  ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>מצלמה</span>
-            </button>
-            <button
-              onClick={() => handleModeChange('voiceover')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                studioMode === 'voiceover' 
-                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Mic className="w-3.5 h-3.5 text-indigo-400" />
-              <span>קריינות ו-B-Roll</span>
-            </button>
-          </div>
-
-          {isRecording && (
-            <div className="flex items-center gap-2 px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 rounded-full text-rose-400 text-xs font-bold animate-pulse whitespace-nowrap shrink-0">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span>מקליט: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Action Controls & Format Switcher */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          
-          {studioMode === 'camera' && (
-            <>
-              {/* Quick Lens Switcher Pills */}
-              <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
-                {[
-                  { label: '1.0x', val: 1.0, title: 'רגיל (ברירת מחדל)' },
-                  { label: '1.2x', val: 1.2, title: 'מעט קרוב' },
-                  { label: '1.5x', val: 1.5, title: 'תקריב' },
-                  { label: '2.0x', val: 2.0, title: 'זום 2x' }
-                ].map((lens) => (
-                  <button
-                    key={lens.label}
-                    onClick={() => applyZoom(lens.val)}
-                    title={lens.title}
-                    className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
-                      Math.abs(zoomLevel - lens.val) < 0.05
-                        ? 'bg-indigo-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {lens.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Flip Camera (Front / Back) */}
-              <button
-                onClick={toggleFacingMode}
-                title="החלף בין מצלמה קדמית לאחורית"
-                className="px-2.5 py-1.5 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1 shrink-0 active:scale-95"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden sm:inline">{facingMode === 'user' ? 'סלפי' : 'אחורית'}</span>
-              </button>
-            </>
-          )}
-
-          {/* Mic Boost Control Toggle */}
-          <button
-            onClick={() => {
-              setShowMicControls(prev => !prev);
-              setShowPrompterSettings(false);
-              setShowZoomBar(false);
-              setShowControls(false);
-            }}
-            title="ניקוי רעשים, עוצמה, בס והדהוד לקול"
-            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 ${
-              showMicControls
-                ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
-                : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-            }`}
-          >
-            <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden sm:inline">צליל הקול</span>
-          </button>
-
-          {/* Prompter Speed & Settings Toggle */}
-          <button
-            onClick={() => {
-              setShowPrompterSettings(prev => !prev);
-              setShowMicControls(false);
-              setShowZoomBar(false);
-              setShowControls(false);
-            }}
-            title="בורר מהירות והגדרות טלפרומפטר"
-            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 ${
-              showPrompterSettings
-                ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
-                : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-            }`}
-          >
-            <Gauge className="w-3.5 h-3.5 text-indigo-400" />
-            <span>{scrollSpeed}x</span>
-          </button>
-
-          {/* Aspect Ratio Switch */}
-          <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 shrink-0">
-            <button
-              onClick={() => {
-                setAspectRatio('9:16');
-                if (studioMode === 'camera' && isCameraActive) startCamera();
-              }}
-              title="יחס גובה 9:16 (רילס / סטורי / טיקטוק)"
-              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
-                aspectRatio === '9:16' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" /> <span className="hidden sm:inline">9:16</span>
-            </button>
-            <button
-              onClick={() => {
-                setAspectRatio('16:9');
-                if (studioMode === 'camera' && isCameraActive) startCamera();
-              }}
-              title="יחס רוחב 16:9 (יוטיוב / מחשב)"
-              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
-                aspectRatio === '16:9' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Monitor className="w-3.5 h-3.5" /> <span className="hidden sm:inline">16:9</span>
-            </button>
-          </div>
-
-            {aspectRatio === '9:16' && (
-              <button
-                onClick={() => setFramingMode(prev => prev === 'cover' ? 'wide' : 'cover')}
-                title={framingMode === 'cover' ? 'מצב צילום: מילוי 9:16 מלא (Reels Cover). לחץ למצב שוליים' : 'מצב צילום: שוליים (Wide). לחץ למילוי מלא'}
-                className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer transition-all ml-1"
-              >
-                <Scan className="w-3 h-3 text-indigo-400" />
-                <span className="hidden sm:inline">{framingMode === 'cover' ? 'מילוי מלא' : 'שוליים'}</span>
-              </button>
-            )}
-
-            {studioMode === 'camera' && (
-              <button
-                onClick={() => setEyeContactAnchor(prev => !prev)}
-                title="עוגן מיקוד מבט לעדשה: מסמן את מיקום העדשה ומכוון את המבט ישירות לצופים"
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ml-1 border ${
-                  eyeContactAnchor
-                    ? 'bg-cyan-950/70 border-cyan-500/80 text-cyan-300 shadow-sm shadow-cyan-500/20'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">{eyeContactAnchor ? 'עוגן עדשה ✓' : 'עוגן עדשה'}</span>
-              </button>
-            )}
-
-          {/* Countdown Duration Picker */}
-          <button
-            onClick={() => {
-              setCountdownDuration(prev => prev === 3 ? 5 : prev === 5 ? 10 : prev === 10 ? 0 : 3);
-            }}
-            title="ספירה לאחור עם צליל קלאפר לפני הקלטה (3 / 5 / 10 שנ' / מיידי)"
-            className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer transition-all shrink-0 ml-1"
-          >
-            <Timer className="w-3.5 h-3.5 text-amber-400" />
-            <span>{countdownDuration === 0 ? 'ללא השהיה' : `${countdownDuration} שנ'`}</span>
-          </button>
-
-          {/* Hands-Free Sound Clapper Trigger */}
-          <button
-            onClick={() => setClapTriggerActive(prev => !prev)}
-            title="צילום ללא מגע: מחיאת כף מול המצלמה מפעילה את הספירה לאחור אוטומטית"
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shrink-0 ml-1 border ${
-              clapTriggerActive
-                ? 'bg-amber-500/25 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/25 animate-pulse'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">{clapTriggerActive ? '👏 מחיאת כף: פעיל' : '👏 מחיאת כף'}</span>
-          </button>
-
-
-          {studioMode === 'camera' && (
-            <>
-              {/* Mirror Camera */}
-              <button
-                onClick={() => setIsMirrored(prev => !prev)}
-                title="היפוך מראה למצלמה (ללא השפעה על הטקסט)"
-                className={`p-2 rounded-xl border shrink-0 transition-all ${
-                  isMirrored ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-              >
-                <FlipHorizontal className="w-4 h-4" />
-              </button>
-
-              {/* Zoom Toggle */}
-              <button
-                onClick={() => {
-                  setShowZoomBar(prev => !prev);
-                  setShowMicControls(false);
-                  setShowPrompterSettings(false);
-                  setShowControls(false);
-                }}
-                title="זום ומרחק מצלמה"
-                className={`p-2 rounded-xl border shrink-0 transition-all ${
-                  showZoomBar ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
-
-              {/* Lighting Controls */}
-              <button
-                onClick={() => {
-                  setShowControls(prev => !prev);
-                  setShowMicControls(false);
-                  setShowPrompterSettings(false);
-                  setShowZoomBar(false);
-                }}
-                title="תאורה וצבע"
-                className={`p-2 rounded-xl border shrink-0 transition-all ${
-                  showControls ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-              >
-                <Sun className="w-4 h-4" />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Voiceover B-Roll & Visuals Selector Bar */}
-      {studioMode === 'voiceover' && !recordedUrl && (
-        <div className="bg-slate-900/95 border-b border-slate-800 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs z-20 animate-in slide-in-from-top duration-200">
-          <div className="flex items-center gap-3">
-            <span className="font-bold text-white flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-indigo-400" />
-              בחר רקע ויזואלי:
-            </span>
-
-            {/* Background Type Buttons */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => bgVideoInputRef.current?.click()}
-                className={`px-3 py-1.5 rounded-xl border font-bold flex items-center gap-1.5 transition-all ${
-                  bgSourceType === 'broll-video' && bgVideoUrl
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow'
-                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Video className="w-3.5 h-3.5 text-indigo-400" />
-                <span>{bgVideoUrl ? 'סרטון רקע נבחר ✓' : 'העלה סרטון רקע (MP4)'}</span>
-              </button>
-              <input
-                ref={bgVideoInputRef}
-                type="file"
-                accept="video/*,video/mp4,video/webm,video/quicktime,video/mov,.mp4,.webm,.mov,.m4v" onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
-                className="hidden"
-                onChange={handleUploadBgVideo}
-              />
-
-              <button
-                onClick={() => bgImagesInputRef.current?.click()}
-                className={`px-3 py-1.5 rounded-xl border font-bold flex items-center gap-1.5 transition-all ${
-                  bgSourceType === 'slideshow' && bgSlides.length > 0
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow'
-                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                }`}
-              >
-                <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
-                <span>{bgSlides.length > 0 ? `מצגת (${bgSlides.length} תמונות) ✓` : 'העלה מצגת תמונות'}</span>
-              </button>
-              <input
-                ref={bgImagesInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                className="hidden"
-                onChange={handleUploadBgImages}
-              />
-
-              <button
-                onClick={() => setBgSourceType('gradient')}
-                className={`px-3 py-1.5 rounded-xl border font-bold flex items-center gap-1.5 transition-all ${
-                  bgSourceType === 'gradient'
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow'
-                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Palette className="w-3.5 h-3.5 text-indigo-400" />
-                <span>אווירת גרדיאנט דינמית</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Sub-options for Slideshow / Gradient */}
-          {bgSourceType === 'slideshow' && bgSlides.length > 0 && (
-            <div className="flex items-center gap-3 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
-              <span className="text-slate-300 font-bold">החלפת שקופית:</span>
-              {[3, 5, 7, 10].map((dur) => (
-                <button
-                  key={dur}
-                  onClick={() => setSlideDurationSec(dur)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                    slideDurationSec === dur ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {dur} שניות
-                </button>
-              ))}
-            </div>
-          )}
-
-          {bgSourceType === 'gradient' && (
-            <div className="flex items-center gap-2">
-              {PRESET_GRADIENTS.map((grad) => (
-                <button
-                  key={grad.id}
-                  onClick={() => setSelectedGradient(grad.id)}
-                  title={grad.name}
-                  style={{ background: grad.style }}
-                  className={`w-6 h-6 rounded-full border-2 transition-all ${
-                    selectedGradient === grad.id ? 'border-white scale-110 shadow-lg' : 'border-slate-700 opacity-60 hover:opacity-100'
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Floating Control Drawers (Mic / Prompter / Zoom / Lighting) */}
-      {(showMicControls || showPrompterSettings || showZoomBar || showControls) && (
-        <div className="bg-slate-900/95 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 z-20 animate-in slide-in-from-top duration-200 shrink-0">
-          
-          {/* Sound & Voice Settings Panel */}
-          {showMicControls && (
-            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4">
-                <span className="font-bold flex items-center gap-1.5 text-white">
-                  <Volume2 className="w-4 h-4 text-indigo-400" />
-                  צליל הקול:
-                </span>
-                
-                {/* Noise Reduction Toggle */}
-                <label className="flex items-center gap-1.5 font-bold text-white cursor-pointer bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700 select-none">
-                  <input
-                    type="checkbox"
-                    aria-label="ניקוי רעשי רקע"
-                    checked={voiceEffects.noiseReduction !== false}
-                    onChange={e => updateVoiceEffects({ ...voiceEffects, noiseReduction: e.target.checked })}
-                    className="accent-indigo-500 rounded"
-                  />
-                  <span>ניקוי רעשים</span>
-                </label>
-
-                {/* Speech / Depth Presets */}
-                <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-xl border border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.speech)}
-                    className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all ${
-                      voiceEffects.bassDb === 0 && voiceEffects.reverbMix === 0 ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    דיבור צלול
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateVoiceEffects(VOICE_AUDIO_PRESETS.meditation)}
-                    className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all ${
-                      voiceEffects.bassDb > 0 || voiceEffects.reverbMix > 0 ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    מדיטציה עדינה
-                  </button>
-                </div>
-
-                {/* Gain Slider */}
-                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
-                  <span className="text-slate-300">הגברה:</span>
-                  <span className="text-indigo-400 font-mono font-bold min-w-[34px]">{Math.round(micGain * 100)}%</span>
-                  <input
-                    aria-label="עוצמת הגברת מיקרופון"
-                    type="range"
-                    min="1"
-                    max="4"
-                    step="0.1"
-                    value={micGain}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      setMicGain(val);
-                      if (boostedAudioPipelineRef.current) {
-                        boostedAudioPipelineRef.current.setGain(val);
-                      }
-                    }}
-                    className="w-16 sm:w-24 accent-indigo-500 cursor-pointer"
-                  />
-                </div>
-
-                {/* Bass Slider */}
-                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
-                  <span className="text-slate-300">בס:</span>
-                  <span className="text-indigo-400 font-mono font-bold min-w-[28px]">{voiceEffects.bassDb}dB</span>
-                  <input
-                    aria-label="בס לקול"
-                    type="range"
-                    min="0"
-                    max="9"
-                    step="0.5"
-                    value={voiceEffects.bassDb}
-                    onChange={(e) => updateVoiceEffects({ ...voiceEffects, bassDb: Number(e.target.value) })}
-                    className="w-14 sm:w-20 accent-indigo-500 cursor-pointer"
-                  />
-                </div>
-
-                {/* Reverb Slider */}
-                <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700">
-                  <span className="text-slate-300">הדהוד:</span>
-                  <span className="text-indigo-400 font-mono font-bold min-w-[30px]">{Math.round(voiceEffects.reverbMix * 100)}%</span>
-                  <input
-                    aria-label="הדהוד לקול"
-                    type="range"
-                    min="0"
-                    max="0.45"
-                    step="0.01"
-                    value={voiceEffects.reverbMix}
-                    onChange={(e) => updateVoiceEffects({ ...voiceEffects, reverbMix: Number(e.target.value) })}
-                    className="w-14 sm:w-20 accent-indigo-500 cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowMicControls(false)}
-                title="סגור חלונית צליל"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Prompter Settings Panel */}
-          {showPrompterSettings && (
-            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
-              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                <span className="font-bold flex items-center gap-1.5 text-white">
-                  <Gauge className="w-4 h-4 text-indigo-400" />
-                  מהירות טלפרומפטר:
-                </span>
-                
-                <div className="flex items-center gap-1.5 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
-                  <button
-                    onClick={() => setScrollSpeed(prev => Math.max(0.25, Number((prev - 0.25).toFixed(2))))}
-                    className="w-6 h-6 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-bold flex items-center justify-center text-xs shadow-sm"
-                    title="האט מהירות ב-0.25x"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="range"
-                    min="0.25"
-                    max="10"
-                    step="0.25"
-                    value={scrollSpeed}
-                    onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
-                    className="w-24 accent-indigo-500 cursor-pointer h-2 bg-slate-900 rounded-lg"
-                    title="כוונן מהירות גלילה"
-                  />
-                  <button
-                    onClick={() => setScrollSpeed(prev => Math.min(10, Number((prev + 0.25).toFixed(2))))}
-                    className="w-6 h-6 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-bold flex items-center justify-center text-xs shadow-sm"
-                    title="הגבר מהירות ב-0.25x"
-                  >
-                    +
-                  </button>
-                  <span className="font-black text-indigo-400 min-w-[36px] text-center text-xs">
-                    {scrollSpeed}x
-                  </span>
-                </div>
-
-                {/* Preset Speed Buttons */}
-                <div className="flex items-center gap-1">
-                  {[0.5, 0.75, 1, 1.5, 2, 3, 4].map((spd) => (
-                    <button
-                      key={spd}
-                      onClick={() => setScrollSpeed(spd)}
-                      className={`px-2 py-1 rounded-lg font-bold text-[11px] transition-all ${
-                        scrollSpeed === spd
-                          ? 'bg-indigo-600 text-white shadow'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {spd}x
-                    </button>
-                  ))}
-                </div>
-
-                {/* Font Size */}
-                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
-                  <span className="font-bold flex items-center gap-1 text-slate-300">
-                    <Type className="w-3.5 h-3.5 text-indigo-400" />
-                    גופן: {fontSize}px
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setFontSize(prev => Math.max(20, prev - 2))} className="w-5 h-5 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold text-xs">-</button>
-                    <button onClick={() => setFontSize(prev => Math.min(64, prev + 2))} className="w-5 h-5 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold text-xs">+</button>
-                  </div>
-                </div>
-
-                {/* Prompter Play/Pause & Restart */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsScrolling(prev => !prev)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow"
-                  >
-                    {isScrolling ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                    <span>{isScrolling ? 'השהה' : 'הפעל'}</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setTeleprompterRestartSignal((value) => value + 1);
-                      setIsScrolling(true);
-                    }}
-                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl"
-                    title="חזור לתחילת הטקסט"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowPrompterSettings(false)}
-                title="סגור חלונית פרומפטר"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Zoom & Distance Panel */}
-          {showZoomBar && (
-            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="font-bold flex items-center gap-1.5 text-xs text-white">
-                  <ZoomIn className="w-3.5 h-3.5 text-indigo-400" /> זום תקריב: {zoomLevel.toFixed(1)}x
-                </span>
-                <input
-                  aria-label="זום מצלמה"
-                  type="range"
-                  min="1.0"
-                  max="3.0"
-                  step="0.1"
-                  value={zoomLevel}
-                  onChange={(e) => applyZoom(parseFloat(e.target.value))}
-                  className="w-32 accent-indigo-500 cursor-pointer"
-                />
-                <div className="flex items-center gap-1">
-                  {[1.0, 1.2, 1.5, 2.0, 3.0].map((lvl) => (
-                    <button
-                      key={lvl}
-                      onClick={() => applyZoom(lvl)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                        Math.abs(zoomLevel - lvl) < 0.05
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {lvl}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowZoomBar(false)}
-                title="סגור חלונית זום"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Lighting & Brightness Panel */}
-          {showControls && (
-            <div className="flex flex-wrap items-center justify-between w-full gap-3 py-0.5">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold flex items-center gap-1"><Sun className="w-3.5 h-3.5 text-amber-400" /> בהירות: {Math.round(brightness * 100)}%</span>
-                  <input
-                    type="range"
-                    min="0.7"
-                    max="1.5"
-                    step="0.05"
-                    value={brightness}
-                    onChange={(e) => setBrightness(parseFloat(e.target.value))}
-                    className="w-28 accent-amber-500 cursor-pointer"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={ringLight}
-                    onChange={(e) => setRingLight(e.target.checked)}
-                    className="accent-indigo-500 rounded"
-                  />
-                  <span className="font-bold">רינגלייט (מסך לבן מרכך)</span>
-                </label>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowControls(false)}
-                title="סגור חלונית תאורה"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all active:scale-95"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Main Studio Viewport */}
-      <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden select-none">
-        
+      {/* 1. IMMERSIVE FULL-CANVAS VIDEO / CAMERA / VOICEOVER LAYER */}
+      <div 
+        className={`relative w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 ${
+          aspectRatio === '9:16' ? 'h-full aspect-[9/16] max-w-full mx-auto' : 'w-full h-full'
+        }`}
+        onClick={(e) => {
+          if (activeStudioDrawer !== 'none') {
+            setActiveStudioDrawer('none');
+            return;
+          }
+          const target = e.target as HTMLElement;
+          if (target.tagName === 'VIDEO' || target.id === 'video-canvas-backdrop') {
+            setIsUiHidden(prev => !prev);
+          }
+        }}
+      >
         {/* Ring Light Effect */}
         {ringLight && (
           <div className="absolute inset-0 pointer-events-none border-[24px] border-white/40 shadow-[inset_0_0_80px_rgba(255,255,255,0.6)] z-10" />
@@ -1533,386 +903,607 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
         {/* 3-2-1 Countdown Overlay */}
         {countdown !== null && (
-          <div className="absolute inset-0 z-50 bg-black/70 flex flex-col items-center justify-center animate-in fade-in">
-            <div className="w-36 h-36 rounded-full bg-indigo-600/90 border-4 border-indigo-400 flex items-center justify-center text-7xl font-black text-white shadow-2xl animate-bounce">
+          <div className="absolute inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in">
+            <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-rose-600 to-indigo-600 border-4 border-white flex items-center justify-center text-7xl font-black text-white shadow-2xl animate-bounce">
               {countdown}
             </div>
-            <p className="text-white text-lg font-bold mt-6 tracking-wide">התכונן... מתחילים להקליט!</p>
+            <p className="text-white text-base font-bold mt-4 tracking-wide">התכונן... מתחילים להקליט!</p>
           </div>
         )}
 
-        {/* Video Canvas / Stream View */}
-        <div className={`relative flex items-center justify-center overflow-hidden transition-all duration-300 mx-auto ${
-          aspectRatio === '9:16' ? 'h-[94%] max-h-[820px] aspect-[9/16] rounded-2xl shadow-2xl border border-slate-800' : 'w-full h-full'
-        }`}>
-          
-          {/* Active Camera Stream */}
-          {studioMode === 'camera' && !recordedUrl && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                filter: `brightness(${brightness})`,
-                transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`
-              }}
-              className={`w-full h-full object-cover transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
-            />
-          )}
+        {/* Active Live Camera Stream */}
+        {studioMode === 'camera' && !recordedUrl && (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              filter: `brightness(${brightness})`,
+              transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`
+            }}
+            className={`w-full h-full object-cover transition-transform duration-100 ${!isCameraActive ? 'hidden' : ''}`}
+          />
+        )}
 
-          {/* Eye-Contact Lens Target (Anchored at the top center right under the camera lens) */}
-          {studioMode === 'camera' && isCameraActive && !recordedUrl && eyeContactAnchor && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center animate-in fade-in duration-300">
-              <div className="relative flex items-center justify-center">
-                <div className="absolute w-7 h-7 rounded-full bg-cyan-400/25 animate-ping duration-1000" />
-                <div className="w-4 h-4 rounded-full border-2 border-cyan-400 bg-slate-950/90 shadow-[0_0_12px_rgba(34,211,238,0.9)] flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
-                </div>
-              </div>
-              <div className="mt-1 px-2.5 py-0.5 rounded-full bg-slate-950/85 border border-cyan-500/50 text-[10px] font-black text-cyan-300 shadow-xl backdrop-blur-md flex items-center gap-1">
-                <span>👀 הבט כאן לעדשה ⬆️</span>
+        {/* Eye-Contact Lens Target Overlay */}
+        {studioMode === 'camera' && isCameraActive && !recordedUrl && eyeContactAnchor && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center animate-in fade-in duration-300">
+            <div className="relative flex items-center justify-center">
+              <div className="absolute w-7 h-7 rounded-full bg-cyan-400/25 animate-ping duration-1000" />
+              <div className="w-4 h-4 rounded-full border-2 border-cyan-400 bg-slate-950/90 shadow-[0_0_12px_rgba(34,211,238,0.9)] flex items-center justify-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
               </div>
             </div>
-          )}
-
-          {/* Voiceover Mode Background Visual Viewport */}
-          {studioMode === 'voiceover' && !recordedUrl && (
-            <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-slate-950">
-              
-              {/* B-Roll Video Element */}
-              {bgSourceType === 'broll-video' && bgVideoUrl ? (
-                <video
-                  ref={bgVideoRef}
-                  src={bgVideoUrl}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : bgSourceType === 'slideshow' && bgSlides.length > 0 ? (
-                // Slideshow View
-                <div className="w-full h-full relative">
-                  <img
-                    src={bgSlides[0].url}
-                    alt="Slide"
-                    className="w-full h-full object-cover animate-pulse duration-1000"
-                  />
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-[11px] font-bold text-white">
-                    מצגת: {bgSlides.length} תמונות
-                  </div>
-                </div>
-              ) : (
-                // Atmospheric Dynamic Motion Background
-                <div 
-                  className="w-full h-full flex flex-col items-center justify-center text-center p-6 transition-all duration-500"
-                  style={{
-                    background: (PRESET_GRADIENTS.find(g => g.id === selectedGradient) || PRESET_GRADIENTS[0]).style
-                  }}
-                >
-                  <div className="w-24 h-24 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mb-4 text-indigo-400 animate-pulse">
-                    <Mic className="w-12 h-12" />
-                  </div>
-                  <h4 className="text-base font-bold text-white mb-1">אולפן קריינות ו-B-Roll</h4>
-                  <p className="text-xs text-indigo-200/80 max-w-xs mb-3">הקלט את קולך עם הטלפרומפטר. בסיום תוכל להוסיף כתוביות קריוקי מדויקות או סרטוני רקע!</p>
-                </div>
-              )}
+            <div className="mt-1 px-2.5 py-0.5 rounded-full bg-slate-950/85 border border-cyan-500/50 text-[10px] font-black text-cyan-300 shadow-xl backdrop-blur-md flex items-center gap-1">
+              <span>👀 הבט כאן לעדשה ⬆️</span>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Recorded Video Playback Review */}
-          {recordedUrl && (
-            <div className="w-full h-full relative flex items-center justify-center bg-black">
-              {/* Multi-Take Management Tray (Round 2) */}
-              <div className="absolute top-3 inset-x-3 z-30 flex flex-col gap-2 bg-slate-900/95 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-slate-700/80 shadow-2xl">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black text-white flex items-center gap-1.5">
-                      <Clapperboard className="w-4 h-4 text-indigo-400" />
-                      טייקים ({takes.length}):
-                    </span>
-                    <button
-                      onClick={handleNewTake}
-                      className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow cursor-pointer transition-all active:scale-95 border border-indigo-400/30"
-                      title="צלם טייק נוסף מבלי למחוק את הטייקים הקודמים"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>צלם טייק נוסף (טייק {takes.length + 1})</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {onOpenOriginalEditor && (
-                      <button
-                        onClick={handleOpenOriginalEditor}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
-                      >
-                        <span>עורך מקורי</span>
-                        <ArrowLeft className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <button
-                      onClick={handleOpenEditor}
-                      className="px-3.5 py-1.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg shadow-teal-500/25 transition-all cursor-pointer"
-                    >
-                      <span>המשך לעריכה עם טייק זה</span>
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Horizontal Scrollable Takes List */}
-                {takes.length > 0 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-                    {takes.map(take => {
-                      const isSelected = (selectedTakeId === take.id) || (takes.length === 1);
-                      return (
-                        <div
-                          key={take.id}
-                          onClick={() => handleSelectTake(take)}
-                          className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 cursor-pointer transition-all shrink-0 text-xs font-bold ${
-                            isSelected
-                              ? 'bg-gradient-to-r from-indigo-600/40 to-purple-600/40 border-indigo-400 text-white shadow-md ring-1 ring-indigo-400'
-                              : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
-                          }`}
-                        >
-                          <button
-                            onClick={(e) => handleToggleFavoriteTake(take.id, e)}
-                            className="hover:scale-125 transition-transform p-0.5"
-                            title={take.isFavorite ? 'טייק מועדף ⭐' : 'סמן כמועדף'}
-                          >
-                            <Star className={`w-3.5 h-3.5 ${take.isFavorite ? 'text-amber-400 fill-amber-400' : 'text-slate-500'}`} />
-                          </button>
-                          <span>טייק {take.takeNumber}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">({Math.round(take.duration)}שנ')</span>
-                          {isSelected && <span className="text-[9px] bg-indigo-500 text-white px-1.5 py-0.2 rounded font-black">נבחר</span>}
-                          {takes.length > 1 && (
-                            <button
-                              onClick={(e) => handleDeleteTake(take.id, e)}
-                              className="text-slate-500 hover:text-rose-400 mr-1 p-0.5"
-                              title="מחק טייק זה"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
+        {/* Voiceover Mode Background Visual Viewport */}
+        {studioMode === 'voiceover' && !recordedUrl && (
+          <div id="video-canvas-backdrop" className="w-full h-full relative overflow-hidden flex items-center justify-center bg-slate-950">
+            {bgSourceType === 'broll-video' && bgVideoUrl ? (
               <video
-                ref={previewVideoRef}
-                src={recordedUrl}
-                controls
+                ref={bgVideoRef}
+                src={bgVideoUrl}
                 autoPlay
+                loop
+                muted
                 playsInline
-                className={`w-full h-full ${aspectRatio === '9:16' && framingMode === 'cover' ? 'object-cover' : 'object-contain'}`}
+                className="w-full h-full object-cover"
               />
-            </div>
-          )}
-
-          {/* Camera Offline Placeholder */}
-          {studioMode === 'camera' && !isCameraActive && !recordedUrl && (
-            <div className="flex flex-col items-center justify-center text-center p-8 text-slate-400">
-              <div className="w-20 h-20 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-4 text-indigo-400 shadow-xl">
-                <Camera className="w-10 h-10" />
+            ) : bgSourceType === 'slideshow' && bgSlides.length > 0 ? (
+              <div className="w-full h-full relative">
+                <img
+                  src={bgSlides[0].url}
+                  alt="Slide"
+                  className="w-full h-full object-cover animate-pulse duration-1000"
+                />
+                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-[11px] font-bold text-white">
+                  מצגת: {bgSlides.length} תמונות
+                </div>
               </div>
-              <h3 className="text-lg font-bold text-white mb-1">המצלמה אינה פעילה</h3>
-              <p className="text-xs text-slate-400 max-w-xs mb-6">לחץ על הכפתור למטה כדי להפעיל את המצלמה והמיקרופון ולהתחיל בהקלטה.</p>
-              <button
-                onClick={() => startCamera()}
-                disabled={isCameraLoading}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all"
-              >
-                {isCameraLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                <span>הפעל מצלמה ומיקרופון</span>
-              </button>
-            </div>
-          )}
-
-          {/* Teleprompter Overlay */}
-          {((studioMode === 'camera' && isCameraActive) || (studioMode === 'voiceover')) && !recordedUrl && (
-            <div className="absolute inset-0 pointer-events-auto z-10">
-              <Teleprompter
-                text={scriptText || 'כתוב או צור תסריט בלשונית מחולל התסריטים כדי להציג אותו כאן בזמן אמת...'}
-                isScrolling={isScrolling}
-                scrollSpeed={scrollSpeed}
-                fontSize={fontSize}
-                opacity={textOpacity}
-                isCameraActive={studioMode === 'camera' ? isCameraActive : true}
-                isMirrored={false}
-                eyeContactAnchor={eyeContactAnchor}
-                voiceTrackEnabled={voiceTrackMode}
-                restartSignal={teleprompterRestartSignal}
-                onSpeedChange={setScrollSpeed}
-                onFontSizeChange={setFontSize}
-                onOpacityChange={setTextOpacity}
-                onToggleVoiceTrack={setVoiceTrackMode}
-                onToggleScroll={() => setIsScrolling(prev => !prev)}
-                onRestart={() => setIsScrolling(true)}
-              />
-            </div>
-          )}
-
-          {/* Multi-Take Banner during live camera */}
-          {!recordedUrl && takes.length > 0 && (
-            <div className="absolute top-4 left-4 z-20 pointer-events-auto">
-              <button
-                onClick={() => {
-                  const lastTake = takes[takes.length - 1];
-                  handleSelectTake(lastTake);
+            ) : (
+              <div 
+                className="w-full h-full flex flex-col items-center justify-center text-center p-6 transition-all duration-500"
+                style={{
+                  background: (PRESET_GRADIENTS.find(g => g.id === selectedGradient) || PRESET_GRADIENTS[0]).style
                 }}
-                className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-indigo-500/50 text-indigo-300 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-lg backdrop-blur-md cursor-pointer transition-all"
-                title="צפה בטייקים שהוקלטו בסשן זה"
               >
-                <Clapperboard className="w-3.5 h-3.5 text-indigo-400" />
-                <span>ישנם {takes.length} טייקים שמורים (חזור לצפייה)</span>
-              </button>
-            </div>
-          )}
+                <div className="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mb-4 text-indigo-400 animate-pulse">
+                  <Mic className="w-10 h-10" />
+                </div>
+                <h4 className="text-base font-bold text-white mb-1">אולפן קריינות ו-B-Roll</h4>
+                <p className="text-xs text-indigo-200/80 max-w-xs mb-3">הקלט את קולך עם הטלפרומפטר. בסיום תוכל להוסיף כתוביות קריוקי מדויקות או סרטוני רקע!</p>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Live Audio Visualizer Meter */}
-          {!recordedUrl && (
-            <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
-              <AudioVisualizer 
-                stream={studioMode === 'camera' ? streamRef.current : micStream} 
-                isActive={studioMode === 'camera' ? isCameraActive : !!micStream} 
-              />
+        {/* Camera Offline Placeholder */}
+        {studioMode === 'camera' && !isCameraActive && !recordedUrl && (
+          <div className="flex flex-col items-center justify-center text-center p-8 text-slate-400">
+            <div className="w-20 h-20 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-4 text-indigo-400 shadow-xl">
+              <Camera className="w-10 h-10" />
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom Studio Action Bar */}
-      <div className="bg-slate-900 border-t border-slate-800 px-6 py-4 flex items-center justify-between z-20">
-        
-        {/* Left Area: Audio TTS / Retake */}
-        <div className="flex items-center gap-3">
-          {recordedUrl ? (
-            <button
-              onClick={handleRetake}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-all"
-            >
-              <RotateCcw className="w-4 h-4 text-amber-400" /> הקלט מחדש
-            </button>
-          ) : studioMode === 'camera' ? (
+            <h3 className="text-lg font-bold text-white mb-1">המצלמה אינה פעילה</h3>
+            <p className="text-xs text-slate-400 max-w-xs mb-6">לחץ על הכפתור כדי להפעיל את המצלמה והמיקרופון ולהתחיל בהקלטה.</p>
             <button
               onClick={() => startCamera()}
               disabled={isCameraLoading}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-all"
+              className="px-6 py-3 bg-gradient-to-r from-rose-600 to-indigo-600 hover:opacity-95 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
             >
-              <Camera className="w-4 h-4 text-indigo-400" /> {isCameraActive ? 'אפס מצלמה' : 'הפעל מצלמה'}
+              {isCameraLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+              <span>הפעל מצלמה ומיקרופון</span>
             </button>
-          ) : (
+          </div>
+        )}
+
+        {/* Recorded Video Playback Review */}
+        {recordedUrl && (
+          <div className="w-full h-full relative flex items-center justify-center bg-black">
+            <video
+              ref={previewVideoRef}
+              src={recordedUrl}
+              controls
+              autoPlay
+              playsInline
+              className={`w-full h-full ${aspectRatio === '9:16' && framingMode === 'cover' ? 'object-cover' : 'object-contain'}`}
+            />
+          </div>
+        )}
+
+        {/* Teleprompter Overlay */}
+        {((studioMode === 'camera' && isCameraActive) || (studioMode === 'voiceover')) && !recordedUrl && (
+          <div className="absolute inset-0 pointer-events-auto z-10">
+            <Teleprompter
+              text={scriptText || 'כתוב או צור תסריט בלשונית מחולל התסריטים כדי להציג אותו כאן בזמן אמת...'}
+              isScrolling={isScrolling}
+              scrollSpeed={scrollSpeed}
+              fontSize={fontSize}
+              opacity={textOpacity}
+              isCameraActive={studioMode === 'camera' ? isCameraActive : true}
+              isMirrored={false}
+              eyeContactAnchor={eyeContactAnchor}
+              voiceTrackEnabled={voiceTrackMode}
+              restartSignal={teleprompterRestartSignal}
+              onSpeedChange={setScrollSpeed}
+              onFontSizeChange={setFontSize}
+              onOpacityChange={setTextOpacity}
+              onToggleVoiceTrack={setVoiceTrackMode}
+              onToggleScroll={() => setIsScrolling(prev => !prev)}
+              onRestart={() => setIsScrolling(true)}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 2. FLOATING TOP HORIZONTAL GLASS BAR */}
+      <div className={`absolute top-3 inset-x-3 sm:inset-x-6 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+        (isRecording || isUiHidden) ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}>
+        {/* Left: Mode switcher pill */}
+        <div className="flex items-center bg-black/50 backdrop-blur-xl p-1 rounded-full border border-white/15 shadow-2xl">
+          <button
+            onClick={() => handleModeChange('camera')}
+            className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              studioMode === 'camera'
+                ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-md'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>מצלמה</span>
+          </button>
+          <button
+            onClick={() => handleModeChange('voiceover')}
+            className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              studioMode === 'voiceover'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <Mic className="w-3.5 h-3.5 text-indigo-300" />
+            <span className="hidden xs:inline">קריינות</span>
+          </button>
+        </div>
+
+        {/* Center: Status / Timer Pill */}
+        {isRecording ? (
+          <div className="flex items-center gap-2 px-3.5 py-1 bg-rose-600/80 backdrop-blur-md border border-rose-400/50 rounded-full text-white text-xs font-bold shadow-lg shadow-rose-600/40 animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span>מקליט {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
+          </div>
+        ) : (
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-black/40 backdrop-blur-md border border-white/10 rounded-full text-slate-300 text-xs font-bold">
+            <span>📜</span>
+            <span>{scriptText ? `תסריט: ${scriptText.trim().split(/\s+/).filter(Boolean).length} מילים` : 'אולפן הקלטה'}</span>
+          </div>
+        )}
+
+        {/* Right: Clean View Toggle */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setIsUiHidden(prev => !prev)}
+            title="תצוגה נקייה ללא סרגלים (הקש במסך לחזרה)"
+            className="px-2.5 py-1.5 rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1 shadow-lg cursor-pointer transition-all active:scale-95"
+          >
+            <Eye className="w-3.5 h-3.5 text-cyan-300" />
+            <span className="hidden sm:inline">נקי</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3. TIKTOK / REELS VERTICAL RIGHT GLASS RAIL */}
+      <div className={`absolute top-14 sm:top-16 right-2 sm:right-3.5 z-30 flex flex-col gap-2 items-center pointer-events-auto transition-all duration-300 ${
+        (isRecording || isUiHidden) ? 'opacity-0 pointer-events-none translate-x-4' : 'opacity-100 translate-x-0'
+      }`}>
+        {/* Flip Camera */}
+        {studioMode === 'camera' && (
+          <button
+            onClick={toggleFacingMode}
+            title="החלף בין מצלמה קדמית לאחורית"
+            className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 text-white flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:bg-black/70 active:scale-90 transition-all cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4 text-cyan-300" />
+            <span>החלף</span>
+          </button>
+        )}
+
+        {/* Eye-Contact Lens Anchor */}
+        {studioMode === 'camera' && (
+          <button
+            onClick={() => setEyeContactAnchor(prev => !prev)}
+            title="עוגן מיקוד מבט לעדשה"
+            className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              eyeContactAnchor ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200 shadow-cyan-500/20' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Eye className="w-4 h-4 text-cyan-300" />
+            <span>עוגן</span>
+          </button>
+        )}
+
+        {/* Voice-Tracked Prompter AI */}
+        <button
+          onClick={() => setVoiceTrackMode(prev => !prev)}
+          title="טלפרומפטר חכם עוקב קול AI"
+          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+            voiceTrackMode ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200 shadow-emerald-500/20 animate-pulse' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>קול AI</span>
+        </button>
+
+        {/* Prompter Speed Drawer Toggle */}
+        <button
+          onClick={() => setActiveStudioDrawer(prev => prev === 'prompter' ? 'none' : 'prompter')}
+          title="מהירות וגודל טלפרומפטר"
+          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+            activeStudioDrawer === 'prompter' ? 'bg-indigo-600/40 border-indigo-400 text-white' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+          }`}
+        >
+          <Gauge className="w-4 h-4 text-indigo-300" />
+          <span>${scrollSpeed}x</span>
+        </button>
+
+        {/* Countdown Timer (Cycles 3s -> 5s -> 10s -> 0s) */}
+        <button
+          onClick={() => setCountdownDuration(prev => prev === 3 ? 5 : prev === 5 ? 10 : prev === 10 ? 0 : 3)}
+          title="זמן ספירה לאחור עם קלאפר קולי"
+          className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 text-amber-300 flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:bg-black/70 active:scale-90 transition-all cursor-pointer"
+        >
+          <Timer className="w-4 h-4" />
+          <span>{countdownDuration === 0 ? '0' : `${countdownDuration}s`}</span>
+        </button>
+
+        {/* Clap Trigger Toggle */}
+        <button
+          onClick={() => setClapTriggerActive(prev => !prev)}
+          title="צילום ללא מגע: מחיאת כף מפעילה ספירה לאחור"
+          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+            clapTriggerActive ? 'bg-amber-500/30 border-amber-400 text-amber-200 animate-pulse' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+          }`}
+        >
+          <Clapperboard className="w-4 h-4 text-amber-300" />
+          <span>מחיאה</span>
+        </button>
+
+        {/* Mic Sound / Audio Effects Drawer */}
+        <button
+          onClick={() => setActiveStudioDrawer(prev => prev === 'audio' ? 'none' : 'audio')}
+          title="צליל הקול, ניקוי רעשים, בס והדהוד"
+          className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+            activeStudioDrawer === 'audio' ? 'bg-indigo-600/40 border-indigo-400 text-white' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+          }`}
+        >
+          <Volume2 className="w-4 h-4 text-indigo-300" />
+          <span>צליל</span>
+        </button>
+
+        {/* Zoom (1.0x -> 1.2x -> 1.5x -> 2.0x) */}
+        {studioMode === 'camera' && (
+          <button
+            onClick={() => {
+              const next = zoomLevel >= 2.0 ? 1.0 : zoomLevel >= 1.5 ? 2.0 : zoomLevel >= 1.2 ? 1.5 : 1.2;
+              applyZoom(next);
+            }}
+            title="זום עדשה"
+            className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 text-slate-200 flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:bg-black/70 active:scale-90 transition-all cursor-pointer"
+          >
+            <ZoomIn className="w-4 h-4 text-sky-300" />
+            <span>{zoomLevel.toFixed(1)}x</span>
+          </button>
+        )}
+
+        {/* Aspect Ratio Switch */}
+        <button
+          onClick={() => {
+            const next = aspectRatio === '9:16' ? '16:9' : '9:16';
+            setAspectRatio(next);
+            if (studioMode === 'camera' && isCameraActive) startCamera();
+          }}
+          title="החלף יחס גובה (9:16 / 16:9)"
+          className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 text-slate-200 flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl hover:bg-black/70 active:scale-90 transition-all cursor-pointer"
+        >
+          {aspectRatio === '9:16' ? <Smartphone className="w-4 h-4 text-rose-400" /> : <Monitor className="w-4 h-4 text-indigo-400" />}
+          <span>{aspectRatio}</span>
+        </button>
+
+        {/* Lighting & Ring light */}
+        {studioMode === 'camera' && (
+          <button
+            onClick={() => setActiveStudioDrawer(prev => prev === 'lighting' ? 'none' : 'lighting')}
+            title="תאורה ורינגלייט"
+            className={`w-10 h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
+              activeStudioDrawer === 'lighting' || ringLight ? 'bg-amber-400/30 border-amber-300 text-amber-200' : 'bg-black/50 border-white/20 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Sun className="w-4 h-4 text-amber-300" />
+            <span>תאורה</span>
+          </button>
+        )}
+      </div>
+
+      {/* 4. FLOATING TRANSLUCENT DRAWERS (Audio, Prompter, Lighting, Takes) */}
+      {activeStudioDrawer !== 'none' && (
+        <div className="absolute top-16 right-16 z-40 bg-slate-900/90 backdrop-blur-2xl border border-white/20 p-4 rounded-3xl shadow-2xl max-w-xs sm:max-w-sm max-h-[75vh] overflow-y-auto animate-in fade-in slide-in-from-right-4 text-xs text-white">
+          <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
+            <span className="font-bold flex items-center gap-1.5 text-sm">
+              {activeStudioDrawer === 'prompter' && <>⏱️ מהירות וגודל טלפרומפטר</>}
+              {activeStudioDrawer === 'audio' && <>🎙️ הגדרות שמע וקול</>}
+              {activeStudioDrawer === 'lighting' && <>☀️ תאורה וצבע</>}
+            </span>
             <button
-              onClick={startMic}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-all"
+              onClick={() => setActiveStudioDrawer('none')}
+              className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer"
             >
-              <Mic className="w-4 h-4 text-indigo-400" /> {micStream ? 'מיקרופון פעיל ✓' : 'הפעל מיקרופון'}
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Prompter Drawer Content */}
+          {activeStudioDrawer === 'prompter' && (
+            <div className="space-y-3.5">
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>מהירות גלילה:</span>
+                  <span className="font-bold text-indigo-400">{scrollSpeed}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="4"
+                  step="0.25"
+                  value={scrollSpeed}
+                  onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>גודל גופן:</span>
+                  <span className="font-bold text-indigo-400">{fontSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="20"
+                  max="52"
+                  step="2"
+                  value={fontSize}
+                  onChange={(e) => setFontSize(parseInt(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>שקיפות רקע:</span>
+                  <span className="font-bold text-indigo-400">{Math.round(textOpacity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.2"
+                  max="1"
+                  step="0.05"
+                  value={textOpacity}
+                  onChange={(e) => setTextOpacity(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-2 rounded-xl bg-black/40 border border-white/10">
+                <span className="font-bold">מעקב קול AI (he-IL)</span>
+                <button
+                  onClick={() => setVoiceTrackMode(prev => !prev)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                    voiceTrackMode ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {voiceTrackMode ? 'פעיל ✓' : 'כבוי'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Audio Drawer Content */}
+          {activeStudioDrawer === 'audio' && (
+            <div className="space-y-3">
+              <label className="flex items-center justify-between p-2 rounded-xl bg-black/40 border border-white/10 cursor-pointer select-none">
+                <span className="font-bold">ניקוי רעשי רקע (AI)</span>
+                <input
+                  type="checkbox"
+                  checked={voiceEffects.noiseReduction !== false}
+                  onChange={e => updateVoiceEffects({ ...voiceEffects, noiseReduction: e.target.checked })}
+                  className="accent-indigo-500 w-4 h-4 rounded"
+                />
+              </label>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>עוצמת מיקרופון (Boost):</span>
+                  <span className="font-bold text-indigo-400">{micGain.toFixed(1)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="2.5"
+                  step="0.1"
+                  value={micGain}
+                  onChange={e => setMicGain(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>חיזוק בס ונוכחות:</span>
+                  <span className="font-bold text-indigo-400">+{voiceEffects.bassDb} dB</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="1"
+                  value={voiceEffects.bassDb}
+                  onChange={e => updateVoiceEffects({ ...voiceEffects, bassDb: parseInt(e.target.value) })}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>הדהוד חם (אולפן):</span>
+                  <span className="font-bold text-indigo-400">{Math.round(voiceEffects.reverbMix * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.4"
+                  step="0.05"
+                  value={voiceEffects.reverbMix}
+                  onChange={e => updateVoiceEffects({ ...voiceEffects, reverbMix: parseFloat(e.target.value) })}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Lighting Drawer Content */}
+          {activeStudioDrawer === 'lighting' && (
+            <div className="space-y-3.5">
+              <label className="flex items-center justify-between p-2 rounded-xl bg-black/40 border border-white/10 cursor-pointer select-none">
+                <span className="font-bold">רינגלייט (מסך לבן מרכך)</span>
+                <input
+                  type="checkbox"
+                  checked={ringLight}
+                  onChange={e => setRingLight(e.target.checked)}
+                  className="accent-amber-400 w-4 h-4 rounded"
+                />
+              </label>
+
+              <div>
+                <div className="flex justify-between text-slate-300 mb-1">
+                  <span>בהירות תמונה:</span>
+                  <span className="font-bold text-amber-300">{Math.round(brightness * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="1.5"
+                  step="0.05"
+                  value={brightness}
+                  onChange={(e) => setBrightness(parseFloat(e.target.value))}
+                  className="w-full accent-amber-400 cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. FLOATING BOTTOM GLASS SHUTTER BAR */}
+      <div className={`absolute bottom-4 inset-x-3 sm:inset-x-8 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+        isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}>
+        {/* Left: Takes Tray or Retake */}
+        <div className="flex items-center gap-2">
+          {takes.length > 0 && !recordedUrl && (
+            <button
+              onClick={() => {
+                const last = takes[takes.length - 1];
+                handleSelectTake(last);
+              }}
+              className="px-3 py-2 rounded-full bg-black/60 backdrop-blur-xl border border-indigo-400/40 text-indigo-300 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-xl cursor-pointer active:scale-95 transition-all"
+            >
+              <Clapperboard className="w-3.5 h-3.5 text-indigo-400" />
+              <span>טייקים ({takes.length})</span>
             </button>
           )}
 
           {recordedUrl && (
             <button
-              onClick={handleDownloadRaw}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-all"
+              onClick={handleNewTake}
+              className="px-3.5 py-2 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-xl cursor-pointer active:scale-95 transition-all"
             >
-              <Download className="w-4 h-4" /> הורד הקלטת גלם
+              <Plus className="w-3.5 h-3.5" />
+              <span>טייק נוסף</span>
             </button>
-          )}
-
-          {/* Audio TTS Preview Player */}
-          {scriptText && (
-            <div className="hidden md:flex items-center gap-2">
-              <button
-                onClick={audioUrl ? toggleTTSPlay : handleGenerateTTS}
-                disabled={audioLoading}
-                className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700"
-              >
-                {audioLoading ? (
-                  <Loader className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                ) : isPlayingAudio ? (
-                  <Pause className="w-3.5 h-3.5 text-amber-400" />
-                ) : (
-                  <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-                )}
-                <span>{audioLoading ? 'מייצר...' : audioUrl ? (isPlayingAudio ? 'השהה קריינות' : 'השמע קריינות') : 'הדגם קריינות AI'}</span>
-              </button>
-
-              {audioUrl && (
-                <audio
-                  ref={audioPlayerRef}
-                  src={audioUrl}
-                  onEnded={() => setIsPlayingAudio(false)}
-                  className="hidden"
-                />
-              )}
-            </div>
           )}
         </div>
 
-        {/* Center: Record / Stop Big Button + Live VU Meter */}
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          {!recordedUrl && (
-            <div className="flex items-center">
-              <AudioVisualizer 
-                stream={studioMode === 'camera' ? streamRef.current : micStream} 
-                isActive={studioMode === 'camera' ? isCameraActive : !!micStream} 
-                showTestButton={!isRecording}
-              />
-            </div>
-          )}
+        {/* Center: Large Shutter Record / Stop Button */}
+        <div className="flex items-center justify-center">
           {!recordedUrl ? (
             isRecording ? (
               <button
                 onClick={handleStopRecording}
-                className="px-8 py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl shadow-rose-600/40 animate-pulse transition-all transform active:scale-95"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-rose-600 border-4 border-white flex items-center justify-center text-white shadow-2xl shadow-rose-600/50 animate-pulse active:scale-95 transition-transform cursor-pointer"
+                title="סיים הקלטה"
               >
-                <Square className="w-5 h-5 fill-current" />
-                <span>סיים הקלטה</span>
+                <Square className="w-6 h-6 sm:w-7 sm:h-7 fill-current" />
               </button>
             ) : (
               <button
                 onClick={handleStartRecording}
                 disabled={(studioMode === 'camera' && !isCameraActive) || countdown !== null}
-                className="px-8 py-3.5 bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white rounded-2xl font-black text-sm flex items-center gap-3 shadow-xl shadow-rose-600/30 disabled:opacity-40 transition-all transform active:scale-95"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-rose-600 via-rose-500 to-indigo-600 border-4 border-white/90 flex items-center justify-center text-white shadow-2xl shadow-rose-600/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
+                title="התחל הקלטה"
               >
-                <div className="w-4 h-4 rounded-full bg-white shadow" />
-                <span>{studioMode === 'camera' ? 'התחל הקלטת וידאו (3-2-1)' : 'התחל הקלטת קריינות (3-2-1)'}</span>
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white shadow-md" />
               </button>
             )
           ) : (
-            <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/30">
-              <Check className="w-4 h-4" /> ההקלטה נשמרה בהצלחה!
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleOpenEditor}
+                className="px-6 py-3 bg-gradient-to-r from-teal-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white font-black text-sm rounded-full shadow-2xl shadow-teal-500/30 flex items-center gap-2 active:scale-95 transition-all cursor-pointer border border-teal-400/40"
+              >
+                <span>המשך לעריכה עם טייק זה</span>
+                <ArrowLeft className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>
 
-                {/* Right Area: Move to Editor & Subtitles */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        {/* Right: VU Meter & Mic Sound Check / Editor Direct Trigger */}
+        <div className="flex items-center gap-2">
+          {!recordedUrl && (
+            <div className="bg-black/60 backdrop-blur-xl px-2.5 py-1.5 rounded-full border border-white/15 flex items-center shadow-xl">
+              <AudioVisualizer
+                stream={studioMode === 'camera' ? streamRef.current : micStream}
+                isActive={studioMode === 'camera' ? isCameraActive : !!micStream}
+                showTestButton={!isRecording}
+              />
+            </div>
+          )}
+
           {recordedUrl && onOpenOriginalEditor && (
             <button
               onClick={handleOpenOriginalEditor}
-              disabled={!recordedBlob}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-indigo-600/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
+              className="px-3.5 py-2 rounded-full bg-slate-800/80 backdrop-blur-md border border-slate-700 text-slate-200 text-xs font-bold hover:text-white cursor-pointer transition-all active:scale-95"
             >
-              <span>עבור לעורך מקורי</span>
-              <ArrowLeft className="w-4 h-4" />
+              <span>עורך מקורי</span>
             </button>
           )}
-          <button
-            onClick={handleOpenEditor}
-            disabled={!recordedBlob}
-            className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-500/25 disabled:opacity-40 transition-all transform active:scale-95 cursor-pointer"
-          >
-            <span>עבור לבימוי ועריכה (V2)</span>
-            <ArrowLeft className="w-4 h-4" />
-          </button>
         </div>
       </div>
+
+      {/* Floating Eye indicator when UI is hidden */}
+      {isUiHidden && (
+        <button
+          onClick={() => setIsUiHidden(false)}
+          className="absolute bottom-4 right-4 z-40 p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
+          title="הצג סרגלים"
+        >
+          <Eye className="w-5 h-5 text-cyan-300" />
+        </button>
+      )}
+
     </div>
   );
 };
