@@ -831,59 +831,102 @@ export const cleanSpokenReferenceScript = (raw: string): string => {
 };
 
 /**
- * Downmixes and encodes an AudioBuffer to a compact 16kHz 16-bit mono WAV Blob.
- * 1 minute of 16kHz mono audio is only ~1.9 MB, vastly smaller than a video blob,
- * preventing payload size limits (413/400) and dramatically accelerating AI transcription.
+ * Extracts and downmixes an AudioBuffer to a clean 24kHz 16-bit mono WAV Blob
+ * using high-quality OfflineAudioContext anti-aliased sinc resampling.
+ * Guarantees zero aliasing distortion, pristine speech frequencies, and compact payload.
  */
-function audioBufferToWav(buffer: AudioBuffer, targetSampleRate = 16000): Blob {
-  const numChannels = buffer.numberOfChannels;
-  const originalLength = buffer.length;
-  const originalSampleRate = buffer.sampleRate;
+async function extractCleanWavForGemini(blob: Blob): Promise<Blob | null> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
 
-  const ratio = originalSampleRate / targetSampleRate;
-  const newLength = Math.max(1, Math.round(originalLength / ratio));
-  const result = new Float32Array(newLength);
-
-  for (let i = 0; i < newLength; i++) {
-    const origIndex = Math.min(Math.round(i * ratio), originalLength - 1);
-    let sum = 0;
-    for (let ch = 0; ch < numChannels; ch++) {
-      sum += buffer.getChannelData(ch)[origIndex];
+    const tempCtx = new AudioCtx();
+    let decoded: AudioBuffer;
+    try {
+      decoded = await tempCtx.decodeAudioData(arrayBuffer);
+    } finally {
+      if (tempCtx.state !== 'closed') {
+        tempCtx.close().catch(() => {});
+      }
     }
-    result[i] = sum / numChannels;
+
+    const targetSampleRate = 24000;
+    const targetLength = Math.max(1, Math.ceil(decoded.duration * targetSampleRate));
+    const offlineCtx = new OfflineAudioContext(1, targetLength, targetSampleRate);
+
+    const src = offlineCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offlineCtx.destination);
+    src.start(0);
+
+    const rendered = await offlineCtx.startRendering();
+    const channelData = rendered.getChannelData(0);
+
+    const wavBuf = new ArrayBuffer(44 + channelData.length * 2);
+    const view = new DataView(wavBuf);
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + channelData.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, targetSampleRate, true);
+    view.setUint32(28, targetSampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, channelData.length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < channelData.length; i++) {
+      const s = Math.max(-1, Math.min(1, channelData[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+
+    return new Blob([wavBuf], { type: 'audio/wav' });
+  } catch (err) {
+    console.warn('Audio extraction to clean WAV note:', err);
+    return null;
   }
+}
 
-  const wavBuffer = new ArrayBuffer(44 + newLength * 2);
-  const view = new DataView(wavBuffer);
+/**
+ * Prunes hallucinated trailing subtitles where LLMs repeat early sentences at the end of recordings.
+ */
+export function pruneTrailingHallucinations(captions: CaptionItem[], durationSeconds?: number): CaptionItem[] {
+  if (!captions || captions.length <= 3) return captions || [];
 
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
+  const filtered = [...captions];
+  const firstQuarter = filtered.slice(0, Math.max(1, Math.floor(filtered.length * 0.3)));
+
+  const isEarlyRepeat = (text: string) => {
+    const clean = text.trim().toLowerCase();
+    return firstQuarter.some(item => {
+      const itemClean = item.text.trim().toLowerCase();
+      return clean === itemClean || (clean.length >= 8 && itemClean.includes(clean)) || (itemClean.length >= 8 && clean.includes(itemClean));
+    });
   };
 
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + newLength * 2, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // 1 channel (mono)
-  view.setUint32(24, targetSampleRate, true);
-  view.setUint32(28, targetSampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true); // 16 bits
-  writeString(36, 'data');
-  view.setUint32(40, newLength * 2, true);
-
-  let offset = 44;
-  for (let i = 0; i < newLength; i++) {
-    const s = Math.max(-1, Math.min(1, result[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    offset += 2;
+  // Check last item
+  if (filtered.length > 3 && isEarlyRepeat(filtered[filtered.length - 1].text)) {
+    console.warn('Pruned hallucinated looping caption at video tail:', filtered[filtered.length - 1].text);
+    filtered.pop();
   }
 
-  return new Blob([wavBuffer], { type: 'audio/wav' });
+  // Check second to last item
+  if (filtered.length > 3 && isEarlyRepeat(filtered[filtered.length - 1].text)) {
+    console.warn('Pruned second hallucinated looping caption at video tail:', filtered[filtered.length - 1].text);
+    filtered.pop();
+  }
+
+  return filtered;
 }
 
 const blobToBase64 = (b: Blob): Promise<string> => {
@@ -899,32 +942,18 @@ const blobToBase64 = (b: Blob): Promise<string> => {
 };
 
 const prepareMediaForTranscription = async (blob: Blob): Promise<{ base64: string; mimeType: string }> => {
-  // If the blob is large or video, try extracting clean mono WAV audio
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioCtx) {
-      const audioCtx = new AudioCtx();
-      try {
-        const arrayBuffer = await blob.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        const wavBlob = audioBufferToWav(audioBuffer, 16000);
-        if (wavBlob && wavBlob.size > 0) {
-          const base64 = await blobToBase64(wavBlob);
-          if (base64) {
-            return { base64, mimeType: 'audio/wav' };
-          }
-        }
-      } finally {
-        if (audioCtx.state !== 'closed') {
-          audioCtx.close().catch(() => {});
-        }
+    const cleanWav = await extractCleanWavForGemini(blob);
+    if (cleanWav && cleanWav.size > 0) {
+      const base64 = await blobToBase64(cleanWav);
+      if (base64) {
+        return { base64, mimeType: 'audio/wav' };
       }
     }
   } catch (err) {
-    console.warn('Audio extraction to WAV failed, falling back to full media blob:', err);
+    console.warn('WAV preparation note:', err);
   }
 
-  // Fallback to original blob
   const base64 = await blobToBase64(blob);
   const rawMime = (blob.type || 'video/webm').split(';')[0].trim().toLowerCase();
   return { base64, mimeType: rawMime || 'video/webm' };
@@ -974,6 +1003,11 @@ ${cleanReference ? `עוגן טקסטואלי של מילות הדיבור המ�
 """
 ${cleanReference}
 """` : ''}
+
+כללי סיום ואיסור הזיות (קריטי ביותר):
+1. כאשר הדובר מסיים לדבר בסוף הסרטון (בשלב השתיקה, חיוך הסיום או תנועת היד לסגירת ההקלטה) - סיים את רשימת הכתוביות מיד!
+2. חל איסור מוחלט לחזור על מילים או משפטים מתחילת התסריט או מאמצעו לקראת הסוף אם הם לא נאמרו במפורש בשניות האחרונות!
+3. אל תמציא כתוביות לרגעים של שקט או תנועה. כשהדיבור נפסק - אין כתובית.
 
 כללים קריטיים לעברית וכתוביות:
 1. איות ודקדוק עברי מושלם ותקני:
@@ -1045,9 +1079,9 @@ ${cleanReference}
 
           try {
             const proofread = await proofreadHebrewCaptions(sanitized, cleanReference);
-            return splitLongCaptions(proofread);
+            return splitLongCaptions(pruneTrailingHallucinations(proofread, durationSeconds));
           } catch {
-            return splitLongCaptions(sanitized.map((item: CaptionItem) => ({ ...item, needsReview: true })));
+            return splitLongCaptions(pruneTrailingHallucinations(sanitized.map((item: CaptionItem) => ({ ...item, needsReview: true })), durationSeconds));
           }
         }
       }

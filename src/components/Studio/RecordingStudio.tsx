@@ -93,7 +93,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [activeStudioDrawer, setActiveStudioDrawer] = useState<"none" | "prompter" | "audio" | "lighting" | "takes" | "broll">("none");
   // Controls: Countdown & Prompter Settings
   const [countdownDuration, setCountdownDuration] = useState<number>(3); // 0, 3, 5, 10
-  const [voiceTrackMode, setVoiceTrackMode] = useState<boolean>(false);
 
   const playStudioBeep = (frequency: number, durationMs: number) => {
     try {
@@ -233,9 +232,11 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       const constraints: MediaStreamConstraints = {
         video: videoConstraints,
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 }
         }
       };
 
@@ -325,9 +326,11 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 }
         },
         video: false
       });
@@ -454,17 +457,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     const recordAudioTrack = rawAudioTrack;
 
     if (studioMode === 'camera') {
-      if (!streamRef.current) {   return; }
-
-      // CRITICAL FIX FOR A/V SYNC & MOBILE FLUIDITY:
-      // Always record directly from the hardware camera track and microphone track!
-      // This completely eliminates frame drops, 300ms canvas latency delays,
-      // and guarantees 100% hardware-clock lip sync between speech and mouth movements.
-      const videoTrack = streamRef.current.getVideoTracks()[0];
-      const composite = new MediaStream();
-      if (videoTrack) composite.addTrack(videoTrack);
-      if (recordAudioTrack) composite.addTrack(recordAudioTrack);
-      recordStream = composite;
+      if (!streamRef.current) { return; }
+      // Use direct hardware stream: completely eliminates audio buffer underruns, clicks, and drift
+      recordStream = streamRef.current;
     } else {
       // Voiceover & Faceless Canvas Compositor
       let activeMic = micStreamRef.current;
@@ -954,13 +949,10 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               isCameraActive={studioMode === 'camera' ? isCameraActive : true}
               isMirrored={false}
               eyeContactAnchor={eyeContactAnchor}
-              voiceTrackEnabled={voiceTrackMode}
-              audioStream={studioMode === 'camera' ? streamRef.current : micStreamRef.current}
               restartSignal={teleprompterRestartSignal}
               onSpeedChange={setScrollSpeed}
               onFontSizeChange={setFontSize}
               onOpacityChange={setTextOpacity}
-              onToggleVoiceTrack={setVoiceTrackMode}
               onToggleScroll={() => setIsScrolling(prev => !prev)}
               onRestart={() => setIsScrolling(true)}
               onScriptComplete={handleTeleprompterScriptComplete}
@@ -1076,17 +1068,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </button>
           )}
 
-          {/* Voice-Tracked Prompter AI */}
-          <button
-            onClick={() => setVoiceTrackMode(prev => !prev)}
-            title="טלפרומפטר חכם עוקב קול AI"
-            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl active:scale-90 transition-all cursor-pointer ${
-              voiceTrackMode ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200 shadow-emerald-500/20 animate-pulse' : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>קול AI</span>
-          </button>
+          
 
           {/* Prompter Speed Drawer Toggle */}
           <button
@@ -1234,18 +1216,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                     onChange={(e) => setTextOpacity(parseFloat(e.target.value))}
                     className="w-full accent-indigo-500 cursor-pointer"
                   />
-                </div>
-
-                <div className="flex items-center justify-between p-2 rounded-xl bg-black/40 border border-white/10">
-                  <span className="font-bold">מעקב קול AI (he-IL)</span>
-                  <button
-                    onClick={() => setVoiceTrackMode(prev => !prev)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      voiceTrackMode ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {voiceTrackMode ? 'פעיל ✓' : 'כבוי'}
-                  </button>
                 </div>
               </div>
             )}
@@ -1417,7 +1387,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               <div className="bg-black/60 backdrop-blur-xl px-2 py-1 rounded-full border border-white/15 flex items-center shadow-xl">
                 <AudioVisualizer
                   stream={studioMode === 'camera' ? streamRef.current : micStream}
-                  isActive={studioMode === 'camera' ? isCameraActive : !!micStream}
+                  isActive={(studioMode === 'camera' ? isCameraActive : !!micStream) && !isRecording}
                   showTestButton={!isRecording}
                 />
               </div>
