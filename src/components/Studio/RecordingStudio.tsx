@@ -9,7 +9,6 @@ import {
   RefreshCw, Scan, X, Star, Clapperboard, Timer, Copy, Clipboard
 } from 'lucide-react';
 import { CameraStage } from './CameraStage';
-import { AudioVisualizer } from './AudioVisualizer';
 import { Teleprompter } from './Teleprompter';
 import { generateAudioFromText } from '../../services/geminiService';
 import { VideoAspectRatio, RecordingMode, BackgroundSourceType, BackgroundSlide, StudioTake } from '../../types/studio';
@@ -1482,11 +1481,11 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         )}
 
         {/* 5. FLOATING BOTTOM GLASS SHUTTER BAR - ANCHORED INSIDE STAGE */}
-        <div className={`absolute bottom-6 sm:bottom-8 inset-x-3 sm:inset-x-6 z-30 grid grid-cols-[1fr_auto_1fr] items-center gap-2 pointer-events-auto transition-all duration-300 pb-[env(safe-area-inset-bottom,0px)] ${
+        <div className={`stage-capture-bar ${recordedUrl ? 'stage-review-bar' : ''} transition-opacity duration-300 ${
           isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}>
           {/* Left: Takes Tray or Retake */}
-          <div className="flex items-center gap-1.5">
+          <div className="stage-capture-secondary">
             {takes.length > 0 && (
               <button
                 onClick={() => {
@@ -1511,7 +1510,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           </div>
 
           {/* Center: Large Shutter Record / Stop Button */}
-          <div className="flex items-center justify-center">
+          <div className="stage-capture-primary">
             {!recordedUrl ? (
               isRecording ? (
                 <button
@@ -1545,19 +1544,6 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             )}
           </div>
 
-          {/* Right: VU Meter & Mic Sound Check / Editor Direct Trigger */}
-          <div className="flex items-center justify-end gap-1.5 min-w-0">
-            {!recordedUrl && (
-              <div className="bg-black/60 backdrop-blur-xl px-2 py-1 rounded-full border border-white/15 flex items-center shadow-xl">
-                <AudioVisualizer
-                  stream={studioMode === 'camera' ? streamRef.current : micStream}
-                  isActive={(studioMode === 'camera' ? isCameraActive : !!micStream) && !isRecording}
-                  showTestButton={!isRecording}
-                />
-              </div>
-            )}
-
-          </div>
         </div>
 
         {/* Floating Eye indicator when UI is hidden */}

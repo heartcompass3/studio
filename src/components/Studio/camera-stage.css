@@ -23,6 +23,46 @@
 .camera-stage > video {
   display: block;
 }
+.stage-capture-bar {
+  position: absolute;
+  inset: auto 12px max(24px, env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.stage-capture-primary {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  order: 1;
+}
+.stage-capture-primary > button {
+  flex-shrink: 0;
+}
+.stage-capture-secondary {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(50% - 48px);
+}
+.stage-capture-secondary:empty {
+  display: none;
+}
+.stage-capture-secondary > button {
+  max-width: 100%;
+}
+.stage-review-bar .stage-capture-secondary {
+  position: static;
+  max-width: 100%;
+  justify-content: center;
+  order: 0;
+}
 .camera-stage .stage-topbar {
   position: absolute;
   inset: 12px 12px auto;
@@ -149,6 +189,11 @@
   container-type: inline-size;
 }
 @container (max-width:320px) {
+  .stage-capture-secondary {
+    position: static;
+    max-width: 100%;
+    justify-content: center;
+  }
   .stage-topbar button {
     padding-left: 7px;
     padding-right: 7px;
