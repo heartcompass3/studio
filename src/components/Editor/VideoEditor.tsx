@@ -6,7 +6,7 @@ import {
   Sparkles, Sliders, Check, FileText, Palette, Clock,
   FastForward, Rewind, Zap, PlayCircle, Layers, MoveHorizontal, 
   Target, VolumeX, Volume2, Type, Sparkle, Smartphone, Monitor,
-  Image as ImageIcon, X, Upload, Eye, Music, Repeat2, Scan
+  Image as ImageIcon, X, Upload, Eye, Music, Repeat2, Scan, Shield
 } from 'lucide-react';
 import { CaptionTimeInput } from './CaptionTimeInput';
 import { updateCaptionTiming, shiftAllCaptionsList, captionIsActive } from '../../services/captionTiming';
@@ -53,6 +53,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [duration, setDuration] = useState(initialDuration || 0);
   const [exportAspectRatio, setExportAspectRatio] = useState<VideoAspectRatio>('9:16');
   const [videoFitMode, setVideoFitMode] = useState<'cover' | 'contain'>('cover');
+  const [showSafeZones, setShowSafeZones] = useState(true);
 
   // Trimming State
   const [trimStart, setTrimStart] = useState(0);
@@ -672,17 +673,30 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     <div className="flex flex-col min-h-screen lg:h-[calc(100vh-95px)] bg-slate-950 rounded-2xl border border-slate-800 overflow-visible lg:overflow-hidden shadow-2xl pb-36 lg:pb-0">
       
       {/* Top Header Bar */}
-      <div className="bg-slate-900 px-4 sm:px-6 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="bg-slate-900 px-3 sm:px-6 py-2.5 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={onBackToStudio}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shrink-0"
           >
-            <ArrowRight className="w-4 h-4" /> חזור לאולפן
+            <ArrowRight className="w-4 h-4" /> <span className="hidden xs:inline">חזור לאולפן</span><span className="xs:hidden">חזור</span>
           </button>
-          <span className="text-sm font-bold text-white hidden sm:flex items-center gap-2">
+          <span className="text-sm font-bold text-white hidden sm:flex items-center gap-2 truncate">
             <Subtitles className="w-4 h-4 text-indigo-400" /> עורך וידאו MP4
           </span>
+        </div>
+
+        {/* Mobile Fast Sticky Export Button */}
+        <div className="flex lg:hidden items-center gap-1.5">
+          <button
+            onClick={handleExportMP4}
+            disabled={isExporting}
+            className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 border border-emerald-400/40 disabled:opacity-50 cursor-pointer"
+            title="ייצא סרטון MP4"
+          >
+            {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            <span>{isExporting ? 'מרנדר...' : '💾 ייצא MP4'}</span>
+          </button>
         </div>
 
         {/* Format Switcher (9:16 Reels vs 16:9 YouTube vs Original) */}
@@ -725,14 +739,29 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </button>
         </div>
           {exportAspectRatio === '9:16' && (
-            <button
-              onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer transition-all ml-1.5"
-              title={videoFitMode === 'cover' ? 'מצב נוכחי: מילוי מסך מלא (Cover). לחץ להתאמת תמונה עם שוליים' : 'מצב נוכחי: התאמת שוליים (Letterbox). לחץ למילוי מסך מלא'}
-            >
-              <Scan className="w-3.5 h-3.5 text-indigo-400" />
-              <span>{videoFitMode === 'cover' ? '📱 מילוי 9:16 מלא' : '🔍 התאמת שוליים'}</span>
-            </button>
+            <div className="flex items-center gap-1 ml-1.5">
+              <button
+                onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer transition-all"
+                title={videoFitMode === 'cover' ? 'מצב נוכחי: מילוי מסך מלא (Cover). לחץ להתאמת תמונה עם שוליים' : 'מצב נוכחי: התאמת שוליים (Letterbox). לחץ למילוי מסך מלא'}
+              >
+                <Scan className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{videoFitMode === 'cover' ? '📱 מילוי 9:16 מלא' : '🔍 שוליים'}</span>
+              </button>
+
+              <button
+                onClick={() => setShowSafeZones(prev => !prev)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all flex items-center gap-1.5 ${
+                  showSafeZones
+                    ? 'bg-rose-500/25 border-rose-500 text-rose-300 shadow-md shadow-rose-950/40'
+                    : 'bg-slate-900 border-slate-700 hover:border-slate-500 text-slate-400'
+                }`}
+                title="הצג/הסתר אזורי בטיחות לרילס וטיקטוק (כדי שכתוביות לא יוסתרו ע'י כפתורי הרשתות)"
+              >
+                <Shield className="w-3.5 h-3.5 text-rose-400" />
+                <span>{showSafeZones ? '🛡️ בטיחות פעילה' : '🛡️ אזורי בטיחות'}</span>
+              </button>
+            </div>
           )}
 
 
@@ -933,6 +962,47 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                   <span className="inline-block max-w-[94%] px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-black text-xs sm:text-sm md:text-base border border-indigo-500/60 shadow-2xl backdrop-blur-md">
                     {headlineText}
                   </span>
+                </div>
+              )}
+
+              {/* Social Safe Zones Overlay (TikTok / Reels / Shorts HUD) */}
+              {exportAspectRatio === '9:16' && showSafeZones && !isExporting && (
+                <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden select-none animate-in fade-in duration-200">
+                  {/* Top Bar Danger Zone */}
+                  <div className="absolute top-0 inset-x-0 h-[10%] bg-rose-500/20 border-b-2 border-dashed border-rose-400/70 flex items-center justify-center backdrop-blur-[1px]">
+                    <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[10px] font-bold">
+                      🚫 שטח עליון חסום (חיפוש / תפריטים)
+                    </span>
+                  </div>
+
+                  {/* Right Engagement Column Danger Zone */}
+                  <div className="absolute right-0 top-[30%] bottom-[22%] w-[18%] min-w-[50px] bg-rose-500/15 border-l-2 border-dashed border-rose-400/70 flex flex-col items-center justify-around py-3 backdrop-blur-[1px]">
+                    <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">👤</div>
+                    <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">❤️</div>
+                    <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">💬</div>
+                    <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">↗️</div>
+                    <div className="w-5 h-5 rounded-full border border-rose-300/60 bg-black/60 flex items-center justify-center text-[9px]">🎵</div>
+                    <span className="text-[7.5px] font-bold text-rose-300/90 text-center leading-tight">
+                      כפתורי<br />רשת
+                    </span>
+                  </div>
+
+                  {/* Bottom Danger Zone */}
+                  <div className="absolute bottom-0 inset-x-0 h-[22%] bg-rose-500/20 border-t-2 border-dashed border-rose-400/70 flex flex-col items-center justify-center gap-0.5 backdrop-blur-[1px]">
+                    <span className="px-2 py-0.5 rounded bg-black/70 text-rose-300 text-[10px] font-bold">
+                      🚫 שטח תחתון חסום (שם יוצר, כיתוב רשת, מוזיקה)
+                    </span>
+                    <span className="text-[9px] text-slate-300/80">
+                      הצב את הכתוביות מעל לקו זה
+                    </span>
+                  </div>
+
+                  {/* Center Safe Box Guide */}
+                  <div className="absolute top-[11%] bottom-[23%] left-[4%] right-[19%] border-2 border-dashed border-emerald-400/70 rounded-xl pointer-events-none flex items-start justify-start p-2">
+                    <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-400/60 text-emerald-300 text-[9px] font-black tracking-wide">
+                      ✅ אזור בטוח לכתוביות ופנים
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -1696,11 +1766,16 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         </div>
       )}
-      {/* Mobile Floating Action Dock */}
-      <div className="fixed bottom-3 inset-x-3 z-40 lg:hidden bg-slate-900/95 backdrop-blur-lg border border-slate-700/80 shadow-2xl rounded-2xl p-2 flex items-center justify-between gap-1.5 text-xs">
+      {/* Mobile Floating Action Dock with Safe Area Inset Support */}
+      <div 
+        className="fixed inset-x-3 z-40 lg:hidden bg-slate-900/95 backdrop-blur-lg border border-slate-700/80 shadow-2xl rounded-2xl p-2 flex items-center justify-between gap-1.5 text-xs"
+        style={{
+          bottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))'
+        }}
+      >
         <button
           onClick={togglePlay}
-          className="flex-1 py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-1.5 shadow cursor-pointer transition-colors"
+          className="flex-1 py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-1 shadow cursor-pointer transition-colors"
           title={isPlaying ? 'השהה' : 'נגן'}
         >
           {isPlaying ? <Pause className="w-4 h-4 text-amber-400 fill-current" /> : <Play className="w-4 h-4 text-indigo-400 fill-current" />}
@@ -1738,11 +1813,11 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         <button
           onClick={handleExportMP4}
           disabled={isExporting}
-          className="py-2 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 text-white font-bold flex items-center justify-center gap-1 shadow-lg shadow-indigo-600/30 disabled:opacity-50 cursor-pointer"
-          title="ייצא MP4"
+          className="flex-[1.3] py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-500 via-indigo-600 to-rose-600 hover:from-emerald-400 hover:to-rose-500 text-white font-black flex items-center justify-center gap-1.5 shadow-xl shadow-emerald-500/30 border border-emerald-400/40 disabled:opacity-50 cursor-pointer"
+          title="ייצא MP4 מוכן לשיתוף"
         >
-          {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          <span className="text-[11px]">ייצוא</span>
+          {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          <span className="text-[11px] font-black whitespace-nowrap">{isExporting ? 'מרנדר...' : '💾 ייצא MP4'}</span>
         </button>
       </div>
     </div>

@@ -73,6 +73,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [showZoomBar, setShowZoomBar] = useState(false);
   const [hardwareZoomSupported, setHardwareZoomSupported] = useState(false);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1.0, max: 3.0, step: 0.1 });
+  const [eyeContactAnchor, setEyeContactAnchor] = useState<boolean>(true);
 
   // Voiceover / Faceless B-Roll & Slideshow State
   const [bgSourceType, setBgSourceType] = useState<BackgroundSourceType>('gradient');
@@ -863,6 +864,21 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               </button>
             )}
 
+            {studioMode === 'camera' && (
+              <button
+                onClick={() => setEyeContactAnchor(prev => !prev)}
+                title="עוגן מיקוד מבט לעדשה: מסמן את מיקום העדשה ומכוון את המבט ישירות לצופים"
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ml-1 border ${
+                  eyeContactAnchor
+                    ? 'bg-cyan-950/70 border-cyan-500/80 text-cyan-300 shadow-sm shadow-cyan-500/20'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">{eyeContactAnchor ? 'עוגן עדשה ✓' : 'עוגן עדשה'}</span>
+              </button>
+            )}
+
 
           {studioMode === 'camera' && (
             <>
@@ -1352,6 +1368,21 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             />
           )}
 
+          {/* Eye-Contact Lens Target (Anchored at the top center right under the camera lens) */}
+          {studioMode === 'camera' && isCameraActive && !recordedUrl && eyeContactAnchor && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center animate-in fade-in duration-300">
+              <div className="relative flex items-center justify-center">
+                <div className="absolute w-7 h-7 rounded-full bg-cyan-400/25 animate-ping duration-1000" />
+                <div className="w-4 h-4 rounded-full border-2 border-cyan-400 bg-slate-950/90 shadow-[0_0_12px_rgba(34,211,238,0.9)] flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
+                </div>
+              </div>
+              <div className="mt-1 px-2.5 py-0.5 rounded-full bg-slate-950/85 border border-cyan-500/50 text-[10px] font-black text-cyan-300 shadow-xl backdrop-blur-md flex items-center gap-1">
+                <span>👀 הבט כאן לעדשה ⬆️</span>
+              </div>
+            </div>
+          )}
+
           {/* Voiceover Mode Background Visual Viewport */}
           {studioMode === 'voiceover' && !recordedUrl && (
             <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-slate-950">
@@ -1467,6 +1498,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 opacity={textOpacity}
                 isCameraActive={studioMode === 'camera' ? isCameraActive : true}
                 isMirrored={false}
+                eyeContactAnchor={eyeContactAnchor}
                 restartSignal={teleprompterRestartSignal}
                 onSpeedChange={setScrollSpeed}
                 onFontSizeChange={setFontSize}
@@ -1557,8 +1589,17 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           )}
         </div>
 
-        {/* Center: Record / Stop Big Button */}
-        <div className="flex items-center gap-3">
+        {/* Center: Record / Stop Big Button + Live VU Meter */}
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          {!recordedUrl && (
+            <div className="flex items-center">
+              <AudioVisualizer 
+                stream={studioMode === 'camera' ? streamRef.current : micStream} 
+                isActive={studioMode === 'camera' ? isCameraActive : !!micStream} 
+                showTestButton={!isRecording}
+              />
+            </div>
+          )}
           {!recordedUrl ? (
             isRecording ? (
               <button

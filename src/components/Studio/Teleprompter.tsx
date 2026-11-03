@@ -9,6 +9,7 @@ export interface TeleprompterProps {
   opacity: number;
   isCameraActive: boolean;
   isMirrored?: boolean;
+  eyeContactAnchor?: boolean;
   restartSignal?: number;
   onToggleScroll?: () => void;
   onRestart?: () => void;
@@ -25,6 +26,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
   opacity,
   isCameraActive,
   isMirrored = false,
+  eyeContactAnchor = false,
   restartSignal = 0,
   onToggleScroll,
   onRestart,
@@ -270,13 +272,13 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
       
       {/* Eye-Level Reading Focus Guide */}
       {showFocusGuide && (
-        <div className="absolute top-[35%] left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-4 opacity-75">
-          <div className="h-[2px] w-14 bg-gradient-to-r from-transparent to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
-          <div className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[10px] font-bold text-amber-300 backdrop-blur-md shadow-sm flex items-center gap-1.5">
-            <Eye className="w-3 h-3 text-amber-400" />
-            <span>גובה קריאה מול העדשה</span>
+        <div className={`absolute ${eyeContactAnchor ? 'top-[16%]' : 'top-[35%]'} left-0 right-0 z-30 pointer-events-none flex items-center justify-between px-4 transition-all duration-300 ${eyeContactAnchor ? 'opacity-90' : 'opacity-75'}`}>
+          <div className={`h-[2px] w-14 bg-gradient-to-r from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`} />
+          <div className={`px-2.5 py-0.5 rounded-full border text-[10px] font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 ${eyeContactAnchor ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300' : 'bg-amber-500/20 border-amber-400/40 text-amber-300'}`}>
+            <Eye className={`w-3 h-3 ${eyeContactAnchor ? 'text-cyan-300' : 'text-amber-400'}`} />
+            <span>{eyeContactAnchor ? '🎯 עוגן מבט לעדשה' : 'גובה קריאה מול העדשה'}</span>
           </div>
-          <div className="h-[2px] w-14 bg-gradient-to-l from-transparent to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
+          <div className={`h-[2px] w-14 bg-gradient-to-l from-transparent ${eyeContactAnchor ? 'to-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'to-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`} />
         </div>
       )}
 
@@ -300,7 +302,7 @@ export const Teleprompter: React.FC<TeleprompterProps> = ({
             transform: `translate3d(0, -${offsetY}px, 0)`,
             willChange: 'transform',
             fontSize: `${fontSize}px`,
-            paddingTop: '35vh',
+            paddingTop: eyeContactAnchor ? '16vh' : '35vh',
             paddingBottom: '85vh',
             textShadow: isCameraActive
               ? '0 2px 4px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.8)'
