@@ -25,9 +25,9 @@ export function CaptionPreview({
       if (!alive) return;
       const css = getComputedStyle(element);
       const next = {
-        width: Math.max(1, element.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) - 4),
-        font: `${css.fontWeight} ${css.fontSize} ${css.fontFamily}`,
-        size: parseFloat(css.fontSize),
+        width: Math.max(1, element.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0) - 4),
+        font: `${css.fontWeight || '900'} ${css.fontSize || '18px'} ${css.fontFamily || 'Arial'}`,
+        size: parseFloat(css.fontSize) || 18,
       };
       setMetrics(old => old.width === next.width && old.font === next.font ? old : next);
     };

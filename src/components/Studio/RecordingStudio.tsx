@@ -8,15 +8,21 @@ import {
   Gauge, Type, Video, Layers, Palette, Plus, Trash2, Music,
   RefreshCw, Scan, X, Star, Clapperboard, Timer, Copy, Clipboard
 } from 'lucide-react';
+import { CameraStage } from './CameraStage';
 import { AudioVisualizer } from './AudioVisualizer';
 import { Teleprompter } from './Teleprompter';
 import { generateAudioFromText } from '../../services/geminiService';
 import { VideoAspectRatio, RecordingMode, BackgroundSourceType, BackgroundSlide, StudioTake } from '../../types/studio';
 import { fixWebmDuration } from '../../services/webmFixer';
 // Native direct audio stream recording
-import { VoiceAudioEffects, VOICE_AUDIO_PRESETS } from '../../services/meditationAudio';
+import { VoiceAudioEffects, VOICE_AUDIO_PRESETS, createVoiceAudioGraph } from '../../services/meditationAudio';
 
 interface RecordingStudioProps {
+  active: boolean;
+  takes: StudioTake[];
+  onTakesChange: React.Dispatch<React.SetStateAction<StudioTake[]>>;
+  onBusyChange: (busy: boolean) => void;
+  onVideoRemoved: (blob: Blob) => void;
   scriptText: string;
   onScriptChange?: (script: string) => void;
   onVideoRecorded: (blob: Blob, url: string, duration?: number) => void;
@@ -33,6 +39,7 @@ const PRESET_GRADIENTS = [
 ];
 
 export const RecordingStudio: React.FC<RecordingStudioProps> = ({
+  active, takes, onTakesChange: setTakes, onBusyChange, onVideoRemoved,
   scriptText,
   onScriptChange,
   onVideoRecorded,
@@ -40,6 +47,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   onOpenOriginalEditor,
   onError
 }) => {
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [liveScript, setLiveScript] = useState(scriptText);
   useEffect(() => {
     setLiveScript(scriptText);
@@ -58,10 +67,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   // Native audio ref
 
   const [voiceEffects, setVoiceEffects] = useState<VoiceAudioEffects>(VOICE_AUDIO_PRESETS.speech);
+  const voiceGraphRef = useRef<ReturnType<typeof createVoiceAudioGraph> | null>(null);
+  const captureSettingsRef = useRef({ brightness: 1, zoom: 1, mirrored: true });
   const voiceEffectsRef = useRef<VoiceAudioEffects>(VOICE_AUDIO_PRESETS.speech);
   const updateVoiceEffects = (next: VoiceAudioEffects) => {
     voiceEffectsRef.current = next;
     setVoiceEffects(next);
+    voiceGraphRef.current?.setEffects(next);
     
     const tracks = [...(streamRef.current?.getAudioTracks() || []), ...(micStreamRef.current?.getAudioTracks() || [])];
     for (const track of tracks) void track.applyConstraints({
@@ -96,7 +108,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
   // Multi-Take Studio System (Round 2)
-  const [takes, setTakes] = useState<StudioTake[]>([]);
+
   const [selectedTakeId, setSelectedTakeId] = useState<string | null>(null);
 
   // Immersive TikTok/Reels Floating HUD Controls
@@ -169,6 +181,19 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const loadedSlideImagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
+  captureSettingsRef.current = { brightness, zoom: hardwareZoomSupported ? 1 : zoomLevel, mirrored: isMirrored };
+  useEffect(() => { voiceGraphRef.current?.setGain(micGain); }, [micGain]);
+  useEffect(() => { onBusyChange(isRecording || countdown !== null); }, [isRecording, countdown, onBusyChange]);
+  useEffect(() => {
+    if (!active) { stopCamera(); stopMic(); audioPlayerRef.current?.pause(); previewVideoRef.current?.pause(); bgVideoRef.current?.pause(); setIsPlayingAudio(false); }
+  }, [active]);
+  useEffect(() => {
+    if (takes.length && !selectedTakeId) {
+      const take = takes[takes.length - 1];
+      setSelectedTakeId(take.id); setRecordedBlob(take.blob); setRecordedUrl(take.url);
+    }
+  }, [takes]);
+
   // Clean up streams on unmount
   useEffect(() => {
     return () => {
@@ -220,14 +245,14 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     }
   };
 
-  const startCamera = async (cameraIdOverride?: string, facingOverride?: 'user' | 'environment') => {
+  const startCamera = async (cameraIdOverride?: string, facingOverride?: 'user' | 'environment', ratioOverride?: VideoAspectRatio) => {
     stopCamera();
     setIsCameraLoading(true);
     try {
       const targetFacing = facingOverride || facingMode;
       const targetCameraId = cameraIdOverride !== undefined ? cameraIdOverride : selectedCameraId;
 
-      const isVertical = aspectRatio === '9:16';
+      const isVertical = (ratioOverride || aspectRatio) === '9:16';
       const videoConstraints: MediaTrackConstraints = isVertical
         ? {
             aspectRatio: { ideal: 9 / 16, max: 1.0 },
@@ -273,6 +298,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         };
         stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
       }
+      if (!activeRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
       streamRef.current = stream;
 
       const videoTrack = stream.getVideoTracks()[0];
@@ -305,9 +331,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       }
 
       setIsCameraActive(true);
-      if (recordedUrl) {
-        URL.revokeObjectURL(recordedUrl);
-      }
+
       setRecordedUrl(null);
       setRecordedBlob(null);
 
@@ -366,6 +390,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         },
         video: false
       });
+      if (!activeRef.current) { stream.getTracks().forEach(track => track.stop()); return null; }
       micStreamRef.current = stream;
       setMicStream(stream);
       return stream;
@@ -495,17 +520,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       if (AudioCtxClass && sourceStream && sourceStream.getAudioTracks().length > 0) {
         studioAudioCtx = new AudioCtxClass();
         const aSource = studioAudioCtx.createMediaStreamSource(sourceStream);
-        const gainNode = studioAudioCtx.createGain();
-        gainNode.gain.value = Math.max(1.3, micGain * 1.8);
-
-        const compressor = studioAudioCtx.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-18, studioAudioCtx.currentTime);
-        compressor.ratio.setValueAtTime(4, studioAudioCtx.currentTime);
-
+        await studioAudioCtx.resume();
         const destNode = studioAudioCtx.createMediaStreamDestination();
-        aSource.connect(gainNode);
-        gainNode.connect(compressor);
-        compressor.connect(destNode);
+        voiceGraphRef.current = createVoiceAudioGraph(studioAudioCtx, aSource, destNode, micGain, voiceEffectsRef.current);
 
         boostedAudioTrack = destNode.stream.getAudioTracks()[0];
       }
@@ -522,45 +539,28 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     if (studioMode === 'camera') {
       if (!streamRef.current) { return; }
 
-      if (isVertical && isCameraLandscape && videoRef.current) {
-        // Hardware sensor gave landscape, crop center 9:16 to canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = 1080;
-        canvas.height = 1920;
-        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
-        const v = videoRef.current;
-
-        const drawCropLoop = () => {
-          canvasLoopId = requestAnimationFrame(drawCropLoop);
-          if (v.videoWidth && v.videoHeight) {
-            const targetAspect = 1080 / 1920;
-            const srcAspect = v.videoWidth / v.videoHeight;
-            let sx = 0, sy = 0, sw = v.videoWidth, sh = v.videoHeight;
-            if (srcAspect > targetAspect) {
-              sw = v.videoHeight * targetAspect;
-              sx = (v.videoWidth - sw) / 2;
-            } else {
-              sh = v.videoWidth / targetAspect;
-              sy = (v.videoHeight - sh) / 2;
-            }
-            ctx.save();
-            if (isMirrored) {
-              ctx.translate(1080, 0);
-              ctx.scale(-1, 1);
-            }
-            ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 1080, 1920);
-            ctx.restore();
-          }
-        };
-        canvasLoopId = requestAnimationFrame(drawCropLoop);
-        const canvasStream = canvas.captureStream(30);
-        if (recordAudioTrack) canvasStream.addTrack(recordAudioTrack);
-        recordStream = canvasStream;
-      } else {
-        // Direct stream with boosted audio track
-        const vTrk = streamRef.current.getVideoTracks()[0];
-        recordStream = new MediaStream([vTrk, ...(recordAudioTrack ? [recordAudioTrack] : [])]);
-      }
+      if (!videoRef.current) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = outWidth; canvas.height = outHeight;
+      const ctx = canvas.getContext('2d', { alpha: false })!;
+      const video = videoRef.current;
+      const drawCamera = () => {
+        canvasLoopId = requestAnimationFrame(drawCamera);
+        if (!video.videoWidth || !video.videoHeight) return;
+        const settings = captureSettingsRef.current;
+        const targetRatio = outWidth / outHeight;
+        let sw = video.videoWidth, sh = video.videoHeight;
+        if (sw / sh > targetRatio) sw = sh * targetRatio; else sh = sw / targetRatio;
+        sw /= settings.zoom; sh /= settings.zoom;
+        ctx.save();
+        ctx.filter = `brightness(${settings.brightness})`;
+        if (settings.mirrored) { ctx.translate(outWidth, 0); ctx.scale(-1, 1); }
+        ctx.drawImage(video, (video.videoWidth - sw) / 2, (video.videoHeight - sh) / 2, sw, sh, 0, 0, outWidth, outHeight);
+        ctx.restore();
+      };
+      drawCamera();
+      recordStream = canvas.captureStream(30);
+      if (recordAudioTrack) recordStream.addTrack(recordAudioTrack);
     } else {
       // Voiceover & Faceless Canvas Compositor
       let activeMic = micStreamRef.current;
@@ -708,6 +708,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
       
       
+      voiceGraphRef.current?.cleanup(); voiceGraphRef.current = null;
+      void studioAudioCtx?.close();
       onError('לא ניתן להתחיל הקלטה בדפדפן הזה. נסה שוב או בחר דפדפן אחר.');
       return;
     }
@@ -721,7 +723,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
     recorder.onstop = async () => {
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
+      voiceGraphRef.current?.cleanup(); voiceGraphRef.current = null;
       if (studioAudioCtx) { studioAudioCtx.close().catch(() => {}); }
+      recordStream.getVideoTracks().forEach(track => track.stop());
       if (bgVideoRef.current) bgVideoRef.current.pause();
       if (false) {
 
@@ -760,6 +764,8 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
       if (canvasLoopId) cancelAnimationFrame(canvasLoopId);
       
       
+      voiceGraphRef.current?.cleanup(); voiceGraphRef.current = null;
+      void studioAudioCtx?.close();
       onError('ההקלטה לא התחילה. נסה שוב.');
       return;
     }
@@ -794,25 +800,16 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
   const handleDeleteTake = (takeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setTakes(prev => {
-      const remaining = prev.filter(t => t.id !== takeId);
-      if (selectedTakeId === takeId) {
-        if (remaining.length > 0) {
-          const nextTake = remaining[remaining.length - 1];
-          setSelectedTakeId(nextTake.id);
-          setRecordedBlob(nextTake.blob);
-          setRecordedUrl(nextTake.url);
-          onVideoRecorded(nextTake.blob, nextTake.url, nextTake.duration);
-        } else {
-          setSelectedTakeId(null);
-          setRecordedBlob(null);
-          setRecordedUrl(null);
-          if (studioMode === 'camera') startCamera();
-          else startMic();
-        }
-      }
-      return remaining;
-    });
+    const deleted = takes.find(t => t.id === takeId);
+    const remaining = takes.filter(t => t.id !== takeId);
+    setTakes(remaining);
+    if (selectedTakeId === takeId) {
+      const next = remaining[remaining.length - 1];
+      setSelectedTakeId(next?.id || null); setRecordedBlob(next?.blob || null); setRecordedUrl(next?.url || null);
+      if (next) onVideoRecorded(next.blob, next.url, next.duration);
+      else if (deleted) onVideoRemoved(deleted.blob);
+    }
+    if (deleted) URL.revokeObjectURL(deleted.url);
   };
 
   const handleNewTake = () => {
@@ -899,28 +896,9 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
     <div className="relative w-full h-full max-h-full bg-slate-950 overflow-hidden flex items-center justify-center p-0 select-none font-sans">
       
       {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
-      <div 
-        id="studio-stage"
-        style={
-          aspectRatio === '9:16'
-            ? {
-                aspectRatio: '9 / 16',
-                maxWidth: '100%',
-                maxHeight: '100%',
-                width: 'min(100%, calc(100dvh * 9 / 16))',
-                height: 'min(100%, calc(100vw * 16 / 9))',
-              }
-            : {
-                aspectRatio: '16 / 9',
-                maxWidth: '1200px',
-                maxHeight: '100%',
-                width: 'min(100%, calc(100dvh * 16 / 9))',
-                height: 'auto',
-              }
-        }
-        className="relative flex items-center justify-center bg-black overflow-hidden transition-all duration-300 sm:rounded-3xl sm:border sm:border-slate-800/80 sm:shadow-[0_0_60px_rgba(0,0,0,0.85)]"
+      <CameraStage id="studio-stage" ratio={aspectRatio === '9:16' ? 9 / 16 : 16 / 9}
         onClick={(e) => {
-          if (activeStudioDrawer !== 'none') {
+          if (activeStudioDrawer !== 'none' && !(e.target as HTMLElement).closest('button,input,textarea,select,[role=dialog]')) {
             setActiveStudioDrawer('none');
             return;
           }
@@ -954,7 +932,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             muted
             style={{
               filter: `brightness(${brightness})`,
-              transform: `scale(${isMirrored ? -zoomLevel : zoomLevel}, ${zoomLevel})`,
+              transform: `scale(${isMirrored ? -(hardwareZoomSupported ? 1 : zoomLevel) : (hardwareZoomSupported ? 1 : zoomLevel)}, ${hardwareZoomSupported ? 1 : zoomLevel})`,
               objectFit: 'cover',
               objectPosition: 'center center',
               direction: 'ltr'
@@ -1024,7 +1002,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             <button
               onClick={() => startCamera()}
               disabled={isCameraLoading}
-              className="px-6 py-3 bg-gradient-to-r from-rose-600 to-indigo-600 hover:opacity-95 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+              className="px-6 py-3 bg-rose-500 hover:opacity-95 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
             >
               {isCameraLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
               <span>הפעל מצלמה ומיקרופון</span>
@@ -1039,7 +1017,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               ref={previewVideoRef}
               src={recordedUrl}
               controls
-              autoPlay
+              autoPlay={active}
               playsInline
               onLoadedMetadata={() => {
                 if (previewVideoRef.current) {
@@ -1107,7 +1085,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         )}
 
         {/* 2. FLOATING TOP HORIZONTAL GLASS BAR - ANCHORED INSIDE STAGE */}
-        <div className={`absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+        <div className={`stage-topbar transition-all duration-300 ${
           (isRecording || isUiHidden) ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}>
           {/* Left: Mode switcher pill */}
@@ -1116,7 +1094,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               onClick={() => handleModeChange('camera')}
               className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 studioMode === 'camera'
-                  ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-md'
+                  ? 'bg-rose-500 text-white shadow-md'
                   : 'text-slate-300 hover:text-white'
               }`}
             >
@@ -1166,13 +1144,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         </div>
 
         {/* 3. TIKTOK / REELS VERTICAL RIGHT GLASS RAIL - ANCHORED INSIDE STAGE */}
-        <div className={`absolute top-14 right-2 sm:right-2.5 z-30 flex flex-col gap-1.5 sm:gap-2 items-center pointer-events-auto transition-all duration-300 ${
+        <div aria-label="כלי צילום" className={`stage-tools transition-all duration-300 ${
           (isRecording || isUiHidden) ? 'opacity-0 pointer-events-none translate-x-4' : 'opacity-100 translate-x-0'
         }`}>
           {/* Flip Camera */}
           {studioMode === 'camera' && (
             <button
-              onClick={toggleFacingMode}
+              disabled={isRecording || countdown !== null} onClick={toggleFacingMode}
               title="החלף בין מצלמה קדמית לאחורית"
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-white flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
             >
@@ -1251,9 +1229,10 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           {/* Aspect Ratio Switch */}
           <button
             onClick={() => {
+              if (isRecording || countdown !== null) return;
               const next = aspectRatio === '9:16' ? '16:9' : '9:16';
               setAspectRatio(next);
-              if (studioMode === 'camera' && isCameraActive) startCamera();
+              if (studioMode === 'camera' && isCameraActive) void startCamera(undefined, undefined, next);
             }}
             title="החלף יחס גובה (9:16 / 16:9)"
             className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:bg-black/80 active:scale-90 transition-all cursor-pointer"
@@ -1279,12 +1258,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
 
         {/* 4. FLOATING TRANSLUCENT DRAWERS - ANCHORED INSIDE STAGE */}
         {activeStudioDrawer !== 'none' && (
-          <div className="absolute top-16 right-12 sm:right-14 z-40 bg-slate-900/90 backdrop-blur-2xl border border-white/20 p-4 rounded-3xl shadow-2xl max-w-[280px] sm:max-w-xs max-h-[70vh] overflow-y-auto animate-in fade-in slide-in-from-right-4 text-xs text-white">
+          <div role="dialog" aria-label="הגדרות אולפן" onKeyDown={e => { if (e.key === 'Escape') setActiveStudioDrawer('none'); }} onClick={e => e.stopPropagation()} className="stage-sheet text-xs text-white">
             <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
               <span className="font-bold flex items-center gap-1.5 text-xs sm:text-sm">
                 {activeStudioDrawer === 'prompter' && <>⏱️ מהירות וגודל טלפרומפטר</>}
                 {activeStudioDrawer === 'audio' && <>🎙️ הגדרות שמע וקול</>}
                 {activeStudioDrawer === 'lighting' && <>☀️ תאורה וצבע</>}
+                {activeStudioDrawer === 'takes' && <>הטייקים שלי ({takes.length})</>}
               </span>
               <button
                 onClick={() => setActiveStudioDrawer('none')}
@@ -1295,6 +1275,13 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
             </div>
 
             {/* Prompter Drawer Content */}
+            {activeStudioDrawer === 'takes' && <div className="space-y-2">
+              {takes.map(take => <div key={take.id} className={`flex items-center gap-2 rounded-xl p-2 border ${selectedTakeId === take.id ? 'border-teal-400 bg-teal-900/20' : 'border-white/10'}`}>
+                <button className="flex-1 text-right p-2" onClick={() => handleSelectTake(take)}>טייק {take.takeNumber} · {take.duration.toFixed(1)} שנ׳</button>
+                <button aria-label={`סמן טייק ${take.takeNumber} כמועדף`} onClick={e => handleToggleFavoriteTake(take.id, e)}><Star className={`w-4 h-4 ${take.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} /></button>
+                <button aria-label={`מחק טייק ${take.takeNumber}`} onClick={e => handleDeleteTake(take.id, e)}><Trash2 className="w-4 h-4 text-rose-300" /></button>
+              </div>)}
+            </div>}
             {activeStudioDrawer === 'prompter' && (
               <div className="space-y-3.5">
                 {/* Direct Script Editor & Paste inside Prompter Drawer */}
@@ -1495,16 +1482,15 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
         )}
 
         {/* 5. FLOATING BOTTOM GLASS SHUTTER BAR - ANCHORED INSIDE STAGE */}
-        <div className={`absolute bottom-6 sm:bottom-8 inset-x-3 sm:inset-x-6 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 pb-[env(safe-area-inset-bottom,0px)] ${
+        <div className={`absolute bottom-6 sm:bottom-8 inset-x-3 sm:inset-x-6 z-30 grid grid-cols-[1fr_auto_1fr] items-center gap-2 pointer-events-auto transition-all duration-300 pb-[env(safe-area-inset-bottom,0px)] ${
           isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}>
           {/* Left: Takes Tray or Retake */}
           <div className="flex items-center gap-1.5">
-            {takes.length > 0 && !recordedUrl && (
+            {takes.length > 0 && (
               <button
                 onClick={() => {
-                  const last = takes[takes.length - 1];
-                  handleSelectTake(last);
+                  setActiveStudioDrawer('takes');
                 }}
                 className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full bg-black/60 backdrop-blur-xl border border-indigo-400/40 text-indigo-300 hover:text-white text-[11px] sm:text-xs font-bold flex items-center gap-1.5 shadow-xl cursor-pointer active:scale-95 transition-all"
               >
@@ -1540,7 +1526,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                 <button
                   onClick={handleStartRecording}
                   disabled={(studioMode === 'camera' && !isCameraActive) || countdown !== null}
-                  className="w-16 h-16 rounded-full bg-gradient-to-tr from-rose-600 via-rose-500 to-indigo-600 border-4 border-white/90 flex items-center justify-center text-white shadow-2xl shadow-rose-600/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
+                  className="w-16 h-16 rounded-full bg-rose-500 border-4 border-white/90 flex items-center justify-center text-white shadow-2xl shadow-rose-600/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
                   title="התחל הקלטה"
                 >
                   <div className="w-5 h-5 rounded-full bg-white shadow-md" />
@@ -1550,7 +1536,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleOpenEditor}
-                  className="px-5 py-2.5 bg-gradient-to-r from-teal-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white font-black text-xs sm:text-sm rounded-full shadow-2xl shadow-teal-500/30 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border border-teal-400/40"
+                  className="px-5 py-2.5 bg-teal-600 hover:opacity-95 text-white font-black text-xs sm:text-sm rounded-full shadow-2xl shadow-teal-500/30 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border border-teal-400/40"
                 >
                   <span>עבור לעריכה וכתוביות</span>
                   <ArrowLeft className="w-4 h-4" />
@@ -1560,7 +1546,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           </div>
 
           {/* Right: VU Meter & Mic Sound Check / Editor Direct Trigger */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-end gap-1.5 min-w-0">
             {!recordedUrl && (
               <div className="bg-black/60 backdrop-blur-xl px-2 py-1 rounded-full border border-white/15 flex items-center shadow-xl">
                 <AudioVisualizer
@@ -1585,7 +1571,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
           </button>
         )}
 
-      </div>
+      </CameraStage>
     </div>
   );
 };

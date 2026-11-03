@@ -1,3 +1,5 @@
+import { fitMediaFrame } from './mediaGeometry';
+import { createMixBus, finishAudioSamples } from './audioMix';
 import { captionPages, pageAtWord } from './captionLayout';
 export { splitLongCaptions } from './captionLayout';
 import { CaptionItem, SubtitleStyle, VideoAspectRatio, VisualOverlayItem, TextCalloutItem } from '../types/studio';
@@ -468,64 +470,12 @@ export const renderStudioFrame = (
   captionPositionY: number = 74,
   textCallouts: TextCalloutItem[] = []
 ) => {
-  // 1. Draw video background / aspect ratio fitting
-  if (isSourceVertical === isTargetVertical) {
-    if (brightness !== 1 || contrast !== 1) {
-      ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
-    } else {
-      ctx.filter = 'none';
-    }
-    ctx.drawImage(videoElement, 0, 0, width, height);
-    ctx.filter = 'none';
-  } else {
-    // Cross-Format Conversion:
-    if (brightness !== 1 || contrast !== 1) {
-      ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
-    } else {
-      ctx.filter = 'none';
-    }
-
-    if (isTargetVertical && !isSourceVertical) {
-      // 16:9 source to 9:16 target (Reels / Stories)
-      if (videoFitMode === 'contain') {
-        // Ambient background letterboxing
-        ambientCtx.drawImage(videoElement, 0, 0, ambientCanvas.width, ambientCanvas.height);
-        ctx.drawImage(ambientCanvas, 0, 0, width, height);
-        ctx.fillStyle = 'rgba(10, 15, 30, 0.72)';
-        ctx.fillRect(0, 0, width, height);
-
-        const fitW = width;
-        const fitH = (srcH / srcW) * width;
-        const fitY = (height - fitH) / 2;
-        ctx.drawImage(videoElement, 0, fitY, fitW, fitH);
-      } else {
-        // Full-bleed 9:16 vertical cover (Standard Reels full-height fill)
-        const targetAspect = 9 / 16;
-        const sw = srcH * targetAspect;
-        const sx = Math.max(0, (srcW - sw) / 2);
-        ctx.drawImage(videoElement, sx, 0, sw, srcH, 0, 0, width, height);
-      }
-    } else {
-      // 9:16 source to 16:9 target (YouTube)
-      if (videoFitMode === 'cover') {
-        const targetAspect = 16 / 9;
-        const sh = srcW / targetAspect;
-        const sy = Math.max(0, (srcH - sh) / 2);
-        ctx.drawImage(videoElement, 0, sy, srcW, sh, 0, 0, width, height);
-      } else {
-        ambientCtx.drawImage(videoElement, 0, 0, ambientCanvas.width, ambientCanvas.height);
-        ctx.drawImage(ambientCanvas, 0, 0, width, height);
-        ctx.fillStyle = 'rgba(10, 15, 30, 0.72)';
-        ctx.fillRect(0, 0, width, height);
-
-        const fitH = height;
-        const fitW = (srcW / srcH) * height;
-        const fitX = (width - fitW) / 2;
-        ctx.drawImage(videoElement, fitX, 0, fitW, fitH);
-      }
-    }
-    ctx.filter = 'none';
-  }
+  // Use the exact same centered cover/contain geometry as CSS object-fit in preview.
+  ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);
+  ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
+  const frame = fitMediaFrame(srcW, srcH, width, height, videoFitMode);
+  ctx.drawImage(videoElement, frame.sx, frame.sy, frame.sw, frame.sh, frame.dx, frame.dy, frame.width, frame.height);
+  ctx.filter = 'none';
 
   // 2. Draw active Visual Overlays (Hook Cover, B-Roll, PiP)
   if (visualOverlays && visualOverlays.length > 0) {
@@ -568,7 +518,7 @@ export const renderStudioFrame = (
 /**
  * High-Speed Sequential WebCodecs + MP4-Muxer Engine
  * Produces 100% genuine MP4 (H.264 High/Main + AAC 48kHz stereo) with Fast-Start headers.
- * Never freezes in Windows Media Player, QuickTime, iOS, Android, Instagram, or TikTok.
+ * Browser codec support is checked at runtime; the media-element engine is the fallback.
  */
 async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   const {
@@ -628,72 +578,33 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     }
   } catch {}
 
-  // 1. Extract and process audio data cleanly via OfflineAudioContext
+  // Decode into PCM once. Preview and export use the same gain/limiter settings.
   let audioBuffer: AudioBuffer | null = null;
+  const audioCtx = new AudioContext();
   try {
-    let arrayBuf: ArrayBuffer | null = null;
-    if (videoBlob) {
-      arrayBuf = await videoBlob.arrayBuffer();
-    } else {
-      const srcUrl = videoElement.src || videoElement.currentSrc;
-      if (srcUrl && (srcUrl.startsWith('blob:') || srcUrl.startsWith('http') || srcUrl.startsWith('data:'))) {
-        const res = await fetch(srcUrl);
-        arrayBuf = await res.arrayBuffer();
-      }
+    const blob = videoBlob || await (await fetch(videoElement.currentSrc || videoElement.src)).blob();
+    // A decode failure must fall back to the media-element engine, never silently drop speech.
+    const rawDecoded = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+    const offline = new OfflineAudioContext(2, Math.ceil(duration * 48000), 48000);
+    const bus = createMixBus(offline, offline.destination);
+    bus.source.gain.value = Math.max(0, Math.min(1, sourceVolume));
+    bus.music.gain.value = Math.max(0, Math.min(1, musicVolume));
+    const source = offline.createBufferSource();
+    source.buffer = rawDecoded; source.connect(bus.source);
+    source.start(0, trimStart, duration);
+    if (musicBlob) {
+      const music = offline.createBufferSource();
+      music.buffer = await audioCtx.decodeAudioData(await musicBlob.arrayBuffer());
+      music.loop = musicFitMode === 'loop' || (musicFitMode === 'auto' && music.buffer.duration < duration);
+      music.connect(bus.music);
+      const fade = Math.min(0.8, duration / 3);
+      bus.music.gain.setValueAtTime(Math.max(0, Math.min(1, musicVolume)), duration - fade);
+      bus.music.gain.linearRampToValueAtTime(0, duration);
+      music.start(0);
     }
-
-    if (arrayBuf) {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      try {
-        const rawDecoded = await audioCtx.decodeAudioData(arrayBuf);
-        const sampleRate = 48000;
-        const totalRenderSamples = Math.ceil(duration * sampleRate);
-        const offlineCtx = new OfflineAudioContext(
-          2, // Stereo output for clean AAC
-          totalRenderSamples,
-          sampleRate
-        );
-
-        // Source Audio Node
-        const sourceNode = offlineCtx.createBufferSource();
-        sourceNode.buffer = rawDecoded;
-        const sourceGain = offlineCtx.createGain();
-        sourceGain.gain.value = Math.max(0, Math.min(2.5, sourceVolume * 1.5));
-        sourceNode.connect(sourceGain).connect(offlineCtx.destination);
-        sourceNode.start(0, trimStart, duration);
-
-        // Optional Background Music Node
-        if (musicBlob) {
-          try {
-            const musicArrayBuf = await musicBlob.arrayBuffer();
-            const musicDecoded = await audioCtx.decodeAudioData(musicArrayBuf);
-            const musicNode = offlineCtx.createBufferSource();
-            musicNode.buffer = musicDecoded;
-            musicNode.loop = musicFitMode === 'loop' || (musicFitMode === 'auto' && musicDecoded.duration < duration);
-            const musicGain = offlineCtx.createGain();
-            const safeMusicVol = Math.max(0, Math.min(1, musicVolume));
-            musicGain.gain.setValueAtTime(safeMusicVol, 0);
-
-            const fadeDuration = Math.min(0.8, duration / 3);
-            if (duration > fadeDuration) {
-              musicGain.gain.setValueAtTime(safeMusicVol, duration - fadeDuration);
-              musicGain.gain.linearRampToValueAtTime(0, duration);
-            }
-            musicNode.connect(musicGain).connect(offlineCtx.destination);
-            musicNode.start(0, 0, duration);
-          } catch (mErr) {
-            console.warn('Background music decode note:', mErr);
-          }
-        }
-
-        audioBuffer = await offlineCtx.startRendering();
-      } finally {
-        audioCtx.close();
-      }
-    }
-  } catch (audioErr) {
-    console.warn('Audio decoding for WebCodecs note:', audioErr);
-  }
+    audioBuffer = await offline.startRendering();
+    finishAudioSamples(Array.from({ length: audioBuffer.numberOfChannels }, (_, ch) => audioBuffer!.getChannelData(ch)), audioBuffer.sampleRate);
+  } finally { await audioCtx.close(); }
 
   // 2. Preload visual overlay images
   const preloadedImages = new Map<string, HTMLImageElement>();
@@ -785,37 +696,29 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   // 5. Deterministic Sequential Video Frame Rendering
   const originalMuted = videoElement.muted;
   const originalVolume = videoElement.volume;
-    let recorderWakeLock: any = null;
-    try { if ('wakeLock' in navigator) { recorderWakeLock = await (navigator as any).wakeLock.request('screen'); } } catch {}
+
   const originalCurrentTime = videoElement.currentTime;
 
   const totalFrames = Math.max(1, Math.round(duration * fps));
   const frameIntervalUs = Math.round((1 / fps) * 1_000_000);
 
   const seekVideo = (time: number): Promise<void> => {
-    return new Promise((resolve) => {
-      if (!videoElement.seeking && Math.abs(videoElement.currentTime - time) < 0.002 && videoElement.readyState >= 2) {
-        resolve();
-        return;
-      }
+    if (!videoElement.seeking && Math.abs(videoElement.currentTime - time) < 0.002 && videoElement.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve, reject) => {
       let settled = false;
-      const onDone = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          videoElement.removeEventListener('seeked', onDone);
-          videoElement.removeEventListener('error', onDone);
-          resolve();
-        }
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        videoElement.removeEventListener('seeked', done);
+        videoElement.removeEventListener('error', failed);
+        error ? reject(error) : resolve();
       };
-      const timer = setTimeout(onDone, 400);
-      videoElement.addEventListener('seeked', onDone, { once: true });
-      videoElement.addEventListener('error', onDone, { once: true });
-      try {
-        videoElement.currentTime = time;
-      } catch {
-        onDone();
-      }
+      const done = () => finish();
+      const failed = () => finish(new Error('פענוח הפריים נכשל'));
+      const timer = setTimeout(() => finish(new Error('פענוח פריים ארך זמן רב מדי')), 10000);
+      videoElement.addEventListener('seeked', done, { once: true });
+      videoElement.addEventListener('error', failed, { once: true });
+      try { videoElement.currentTime = time; } catch (error) { finish(error instanceof Error ? error : new Error('הניווט לפריים נכשל')); }
     });
   };
 
@@ -892,6 +795,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
         }
       });
 
+      try {
       audioEncoder.configure({
         codec: 'mp4a.40.2',
         numberOfChannels: audioBuffer.numberOfChannels,
@@ -906,19 +810,19 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
       for (let offset = 0; offset < totalSamples; offset += chunkSize) {
         if (audioErr) throw audioErr;
         const currentChunkSize = Math.min(chunkSize, totalSamples - offset);
-        const audioDataPlanar = new Float32Array(chunkSize * numChannels);
+        const audioDataPlanar = new Float32Array(currentChunkSize * numChannels);
 
         for (let ch = 0; ch < numChannels; ch++) {
           const channelData = audioBuffer.getChannelData(ch);
           const sub = channelData.subarray(offset, offset + currentChunkSize);
-          audioDataPlanar.set(sub, ch * chunkSize);
+          audioDataPlanar.set(sub, ch * currentChunkSize);
         }
 
         const timestampUs = Math.round((offset / audioBuffer.sampleRate) * 1_000_000);
         const audioData = new AudioData({
           format: 'f32-planar',
           sampleRate: audioBuffer.sampleRate,
-          numberOfFrames: chunkSize,
+          numberOfFrames: currentChunkSize,
           numberOfChannels: numChannels,
           timestamp: timestampUs,
           data: audioDataPlanar
@@ -926,16 +830,19 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
 
         audioEncoder.encode(audioData);
         audioData.close();
+        while (audioEncoder.encodeQueueSize > 24) await new Promise(resolve => setTimeout(resolve, 0));
       }
 
       await audioEncoder.flush();
       if (audioErr) throw audioErr;
+      } finally { if (audioEncoder.state !== 'closed') audioEncoder.close(); }
     }
   } finally {
     try { videoElement.pause(); } catch (e) {}
     videoElement.muted = originalMuted;
     videoElement.volume = originalVolume;
     videoElement.currentTime = originalCurrentTime;
+    if (videoEncoder.state !== 'closed') videoEncoder.close();
     wakeLock?.release().catch(() => {});
     canvas.width = 0;
     canvas.height = 0;
@@ -956,7 +863,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
  */
 async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blob> {
   const { 
-    videoElement, 
+    videoElement: previewVideo,
     captions, 
     visualOverlays = [],
     trimStart, 
@@ -976,6 +883,15 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
     onProgress 
   } = options;
 
+  const videoElement = document.createElement('video');
+  videoElement.preload = 'auto'; videoElement.playsInline = true;
+  videoElement.crossOrigin = 'anonymous'; videoElement.src = previewVideo.currentSrc || previewVideo.src;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('טעינת הסרטון לייצוא ארכה זמן רב מדי')), 15000);
+    videoElement.onloadeddata = () => { clearTimeout(timer); resolve(); };
+    videoElement.onerror = () => { clearTimeout(timer); reject(new Error('לא ניתן לטעון את הסרטון לייצוא')); };
+    videoElement.load();
+  });
   const srcW = videoElement.videoWidth || 1080;
   const srcH = videoElement.videoHeight || 1920;
 
@@ -1041,87 +957,26 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
 
       const stream = canvas.captureStream(fps);
 
-      try {
-        let audioStream: MediaStream | null = null;
-        if ((videoElement as any).captureStream) {
-          audioStream = (videoElement as any).captureStream();
-        } else if ((videoElement as any).mozCaptureStream) {
-          audioStream = (videoElement as any).mozCaptureStream();
-        }
-
-        const sourceAudioTracks = audioStream?.getAudioTracks() || [];
-        const shouldMixAudio = sourceAudioTracks.length > 0 || Boolean(musicBlob);
-
-        if (shouldMixAudio) {
-          if (false) {
-          } else {
-            exportAudioContext = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
-            const mixDestination = exportAudioContext.createMediaStreamDestination();
-            const masterGain = exportAudioContext.createGain();
-            masterGain.gain.setValueAtTime(0.95, exportAudioContext.currentTime);
-            masterGain.connect(mixDestination);
-
-            if (sourceAudioTracks.length > 0) {
-              const sourceStream = new MediaStream([sourceAudioTracks[0]]);
-              const sourceNode = exportAudioContext.createMediaStreamSource(sourceStream);
-              const sourceGain = exportAudioContext.createGain();
-              sourceGain.gain.value = Math.max(0, Math.min(2.5, sourceVolume * 1.5));
-              sourceNode.connect(sourceGain).connect(masterGain);
-            }
-
-            if (musicBlob) {
-              exportMusicUrl = URL.createObjectURL(musicBlob);
-              exportMusicElement = new Audio(exportMusicUrl);
-              exportMusicElement.preload = 'auto';
-              exportMusicElement.crossOrigin = 'anonymous';
-
-              await new Promise<void>((resolveMusic, rejectMusic) => {
-                const cleanup = () => {
-                  exportMusicElement?.removeEventListener('loadedmetadata', onReady);
-                  exportMusicElement?.removeEventListener('error', onError);
-                };
-                const onReady = () => {
-                  cleanup();
-                  resolveMusic();
-                };
-                const onError = () => {
-                  cleanup();
-                  rejectMusic(new Error('לא ניתן לפענח את קובץ המוזיקה.'));
-                };
-                exportMusicElement!.addEventListener('loadedmetadata', onReady);
-                exportMusicElement!.addEventListener('error', onError);
-                exportMusicElement!.load();
-              });
-
-              const musicDuration = Number.isFinite(exportMusicElement.duration) ? exportMusicElement.duration : 0;
-              exportMusicElement.loop = musicFitMode === 'loop' || (musicFitMode === 'auto' && musicDuration > 0 && musicDuration < duration);
-              exportMusicElement.currentTime = 0;
-
-              const musicNode = exportAudioContext.createMediaElementSource(exportMusicElement);
-              const musicGain = exportAudioContext.createGain();
-              const safeMusicVolume = Math.max(0, Math.min(1, musicVolume));
-              musicGain.gain.setValueAtTime(safeMusicVolume, exportAudioContext.currentTime);
-
-              const fadeDuration = Math.min(0.8, duration / 3);
-              if (duration > fadeDuration) {
-                musicGain.gain.setValueAtTime(
-                  safeMusicVolume,
-                  exportAudioContext.currentTime + duration - fadeDuration
-                );
-                musicGain.gain.linearRampToValueAtTime(0, exportAudioContext.currentTime + duration);
-              }
-              musicNode.connect(musicGain).connect(masterGain);
-            }
-
-            const mixedTrack = mixDestination.stream.getAudioTracks()[0];
-            if (mixedTrack) stream.addTrack(mixedTrack);
-            await exportAudioContext.resume();
-          }
-        }
-      } catch (audioErr) {
-        console.error('Audio mix error:', audioErr);
-        if (musicBlob) throw audioErr;
+      exportAudioContext = new AudioContext({ sampleRate: 48000 });
+      const mixDestination = exportAudioContext.createMediaStreamDestination();
+      const bus = createMixBus(exportAudioContext, mixDestination);
+      bus.source.gain.value = Math.max(0, Math.min(1, sourceVolume));
+      bus.music.gain.value = Math.max(0, Math.min(1, musicVolume));
+      exportAudioContext.createMediaElementSource(videoElement).connect(bus.source);
+      if (musicBlob) {
+        exportMusicUrl = URL.createObjectURL(musicBlob);
+        exportMusicElement = new Audio(); exportMusicElement.preload = 'auto';
+        await new Promise<void>((resolveMusic, rejectMusic) => {
+          const timer = setTimeout(() => rejectMusic(new Error('טעינת המוזיקה ארכה זמן רב מדי')), 15000);
+          exportMusicElement!.onloadedmetadata = () => { clearTimeout(timer); resolveMusic(); };
+          exportMusicElement!.onerror = () => { clearTimeout(timer); rejectMusic(new Error('לא ניתן לקרוא את המוזיקה')); };
+          exportMusicElement!.src = exportMusicUrl!;
+        });
+        exportMusicElement.loop = musicFitMode === 'loop' || (musicFitMode === 'auto' && exportMusicElement.duration < duration);
+        exportAudioContext.createMediaElementSource(exportMusicElement).connect(bus.music);
       }
+      stream.addTrack(mixDestination.stream.getAudioTracks()[0]);
+      await exportAudioContext.resume();
 
       const candidates = [
         'video/mp4;codecs=avc1.640028,mp4a.40.2',
@@ -1174,9 +1029,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
           URL.revokeObjectURL(exportMusicUrl);
           exportMusicUrl = null;
         }
-        if (exportAudioContext && exportAudioContext.state !== 'closed') {
-          exportAudioContext.close().catch(() => undefined);
-        }
+
         videoElement.muted = originalMuted;
         videoElement.volume = originalVolume;
 
@@ -1234,6 +1087,9 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
       }, maxAllowedSeconds * 1000);
 
       recorder.onstop = () => {
+        if (exportAudioContext?.state !== 'closed') void exportAudioContext?.close();
+        videoElement.removeAttribute('src'); videoElement.load();
+        stream.getTracks().forEach(track => track.stop());
         if (hasResolved) return;
         hasResolved = true;
         onProgress(100, 'הרינדור הושלם בהצלחה!');
@@ -1252,18 +1108,26 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
         resolve(rawBlob);
       };
 
-      videoElement.currentTime = trimStart;
-      videoElement.muted = false;
-      videoElement.volume = 1;
+      videoElement.muted = false; videoElement.volume = 1;
+      if (Math.abs(videoElement.currentTime - trimStart) > 0.001) {
+        await new Promise<void>((resolveSeek, rejectSeek) => {
+          const timer = setTimeout(() => { videoElement.removeEventListener('seeked', onSeeked); rejectSeek(new Error('הניווט לתחילת הקטע נכשל')); }, 10000);
+          const onSeeked = () => { clearTimeout(timer); resolveSeek(); };
+          videoElement.addEventListener('seeked', onSeeked, { once: true });
+          videoElement.currentTime = trimStart;
+        });
+      }
+      const now = exportAudioContext!.currentTime;
+      const voice = Math.max(0, Math.min(1, sourceVolume));
+      bus.source.gain.setValueAtTime(0, now);
+      bus.source.gain.linearRampToValueAtTime(voice, now + 0.005);
+      bus.source.gain.setValueAtTime(voice, now + Math.max(0.005, duration - 0.005));
+      bus.source.gain.linearRampToValueAtTime(0, now + duration);
+      const musicFade = Math.min(0.8, duration / 3);
+      bus.music.gain.setValueAtTime(Math.max(0, Math.min(1, musicVolume)), now + duration - musicFade);
+      bus.music.gain.linearRampToValueAtTime(0, now + duration);
 
-      await new Promise<void>((res) => {
-        const onSeeked = () => {
-          videoElement.removeEventListener('seeked', onSeeked);
-          res();
-        };
-        videoElement.addEventListener('seeked', onSeeked, { once: true });
-      });
-
+      recorder.start(250);
       const playbackPromises: Promise<void>[] = [videoElement.play()];
       if (exportMusicElement) {
         exportMusicElement.currentTime = 0;
@@ -1271,9 +1135,7 @@ async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blo
       }
       await Promise.all(playbackPromises);
 
-      // Start recorder strictly AFTER video and audio elements are actively rolling
-      recorder.start(250);
-
+      // The recorder is running before playback so the first audio samples are retained.
       const isSourceVertical = srcH > srcW;
       const isTargetVertical = height > width;
 

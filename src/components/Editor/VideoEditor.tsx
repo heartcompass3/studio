@@ -1,3 +1,6 @@
+import { CameraStage } from '../Studio/CameraStage';
+import { EditorDraft } from '../../services/studioProject';
+import { createMixBus } from '../../services/audioMix';
 import { CaptionPreview } from './CaptionPreview';
 import React, { useState, useRef, useEffect } from 'react';
 import { 
@@ -22,6 +25,10 @@ import {
 
 interface VideoEditorProps {
   active?: boolean;
+  initialDraft?: EditorDraft | null;
+  coverTitle?: string;
+  onDraftChange?: (draft: EditorDraft) => void;
+  onBusyChange?: (busy: boolean) => void;
   videoBlob: Blob | null;
   videoUrl: string | null;
   initialDuration?: number;
@@ -32,7 +39,7 @@ interface VideoEditorProps {
 }
 
 export const VideoEditor: React.FC<VideoEditorProps> = ({
-  active = true,
+  active = true, initialDraft, coverTitle = '', onDraftChange, onBusyChange,
   videoBlob,
   videoUrl,
   initialDuration = 0,
@@ -41,43 +48,40 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   onVideoUploaded,
   onError
 }) => {
-  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
-  const [uploadedBlob, setUploadedBlob] = useState<Blob | null>(null);
-
-  const activeVideoUrl = uploadedUrl || videoUrl;
-  const activeVideoBlob = uploadedBlob || videoBlob;
+  const activeVideoUrl = videoUrl;
+  const activeVideoBlob = videoBlob;
   const videoFileInputRef = useRef<HTMLInputElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
-  const [exportAspectRatio, setExportAspectRatio] = useState<VideoAspectRatio>('9:16');
-  const [videoFitMode, setVideoFitMode] = useState<'cover' | 'contain'>('cover');
+  const [exportAspectRatio, setExportAspectRatio] = useState<VideoAspectRatio>(initialDraft?.exportAspectRatio ?? ('9:16'));
+  const [videoFitMode, setVideoFitMode] = useState<'cover' | 'contain'>(initialDraft?.videoFitMode ?? ('cover'));
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
   // Immersive TikTok/Reels Floating HUD Controls
   const [isUiHidden, setIsUiHidden] = useState(false);
   const [activeEditorDrawer, setActiveEditorDrawer] = useState<"none" | "captions" | "style" | "music" | "trim" | "callouts">("none");
-  const [captionPositionY, setCaptionPositionY] = useState(74);
-  const [textCallouts, setTextCallouts] = useState<TextCalloutItem[]>([]);
+  const [captionPositionY, setCaptionPositionY] = useState(initialDraft?.captionPositionY ?? (74));
+  const [textCallouts, setTextCallouts] = useState<TextCalloutItem[]>(initialDraft?.textCallouts ?? ([]));
   const [newCalloutText, setNewCalloutText] = useState('');
   const [newCalloutStyle, setNewCalloutStyle] = useState<'viral-badge' | 'neon-glow' | 'warning-box' | 'fire-pill'>('fire-pill');
   const [newCalloutPosY, setNewCalloutPosY] = useState(30);
 
   // Trimming State
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(initialDuration || 0);
-  const [hasCustomTrim, setHasCustomTrim] = useState(false);
+  const [trimStart, setTrimStart] = useState(initialDraft?.trimStart ?? (0));
+  const [trimEnd, setTrimEnd] = useState(initialDraft?.trimEnd ?? (initialDuration || 0));
+  const [hasCustomTrim, setHasCustomTrim] = useState(initialDraft?.hasCustomTrim ?? (false));
   const [isDetectingSilence, setIsDetectingSilence] = useState(false);
 
   // Captions & Subtitle Styling
-  const [captions, setCaptions] = useState<CaptionItem[]>([]);
+  const [captions, setCaptions] = useState<CaptionItem[]>(initialDraft?.captions ?? ([]));
   const [isGeneratingCaptions, setIsGeneratingCaptions] = useState(false);
   const [isProofreading, setIsProofreading] = useState(false);
-  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>('karaoke-yellow');
-  const [karaokeEnabled, setKaraokeEnabled] = useState(true); // Word-by-word active highlight
-  const [headlineText, setHeadlineText] = useState(''); // Top headline banner
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(initialDraft?.subtitleStyle ?? ('karaoke-yellow'));
+  const [karaokeEnabled, setKaraokeEnabled] = useState(initialDraft?.karaokeEnabled ?? (true)); // Word-by-word active highlight
+  const [headlineText, setHeadlineText] = useState(initialDraft?.headlineText ?? coverTitle); // Top headline banner
   const [rippleSync, setRippleSync] = useState(true); // Auto-cascade shift to captions (forward & backward)
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
@@ -92,23 +96,35 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   };
 
   // Visual Overlays (B-Roll, Hook Cover, PiP)
-  const [visualOverlays, setVisualOverlays] = useState<VisualOverlayItem[]>([]);
+  const [visualOverlays, setVisualOverlays] = useState<VisualOverlayItem[]>(initialDraft?.visualOverlays ?? ([]));
   const [isOverlayDrawerOpen, setIsOverlayDrawerOpen] = useState(false);
 
   // Video Enhancements
-  const [brightness, setBrightness] = useState(1);
-  const [contrast, setContrast] = useState(1);
+  const [brightness, setBrightness] = useState(initialDraft?.brightness ?? (1));
+  const [contrast, setContrast] = useState(initialDraft?.contrast ?? (1));
 
   // Two-channel audio mix: original voice/video + background music
-  const [sourceVolume, setSourceVolume] = useState(1);
-  const [musicFile, setMusicFile] = useState<File | null>(null);
-  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [sourceVolume, setSourceVolume] = useState(initialDraft?.sourceVolume ?? (1));
+  const [musicFile, setMusicFile] = useState<File | null>(initialDraft?.musicFile ?? (null));
+  const [musicUrl, setMusicUrl] = useState<string | null>(() => initialDraft?.musicFile ? URL.createObjectURL(initialDraft.musicFile) : null);
   const [musicDuration, setMusicDuration] = useState(0);
-  const [musicVolume, setMusicVolume] = useState(0.2);
-  const [musicFitMode, setMusicFitMode] = useState<'auto' | 'loop' | 'trim'>('auto');
+  const [musicVolume, setMusicVolume] = useState(initialDraft?.musicVolume ?? (0.2));
+  const [musicFitMode, setMusicFitMode] = useState<'auto' | 'loop' | 'trim'>(initialDraft?.musicFitMode ?? ('auto'));
+
+  const previousCover = useRef(coverTitle);
+  useEffect(() => { if (previousCover.current !== coverTitle) { setHeadlineText(coverTitle); previousCover.current = coverTitle; } }, [coverTitle]);
+  useEffect(() => {
+    onDraftChange?.({ captions, trimStart, trimEnd, hasCustomTrim, exportAspectRatio, videoFitMode,
+      captionPositionY, subtitleStyle, karaokeEnabled, headlineText, textCallouts, visualOverlays,
+      brightness, contrast, sourceVolume, musicFile, musicVolume, musicFitMode });
+  }, [captions, trimStart, trimEnd, hasCustomTrim, exportAspectRatio, videoFitMode, captionPositionY,
+    subtitleStyle, karaokeEnabled, headlineText, textCallouts, visualOverlays, brightness, contrast,
+    sourceVolume, musicFile, musicVolume, musicFitMode, onDraftChange]);
 
   // Export State
   const [isExporting, setIsExporting] = useState(false);
+  useEffect(() => { onBusyChange?.(isExporting); }, [isExporting, onBusyChange]);
+  const [exportedFile, setExportedFile] = useState<File | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStatusText, setExportStatusText] = useState('');
 
@@ -117,63 +133,30 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const musicRef = useRef<HTMLAudioElement>(null);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const sourceConnectedRef = useRef<boolean>(false);
-
+  const mixRef = useRef<ReturnType<typeof createMixBus> | null>(null);
+  const connectedMusicRef = useRef<HTMLAudioElement | null>(null);
   const ensureAudioBooster = () => {
     try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtxClass) return;
-
-      if (!audioCtxRef.current) {
-        const ctx = new AudioCtxClass();
-        const gain = ctx.createGain();
-        gain.gain.value = isMuted ? 0 : Math.max(1.0, sourceVolume * 1.8);
-
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.setValueAtTime(-14, ctx.currentTime);
-        comp.knee.setValueAtTime(8, ctx.currentTime);
-        comp.ratio.setValueAtTime(3.5, ctx.currentTime);
-        comp.attack.setValueAtTime(0.003, ctx.currentTime);
-        comp.release.setValueAtTime(0.2, ctx.currentTime);
-
-        if (!sourceConnectedRef.current && videoRef.current) {
-          try {
-            const src = ctx.createMediaElementSource(videoRef.current);
-            src.connect(gain);
-            gain.connect(comp);
-            comp.connect(ctx.destination);
-            sourceConnectedRef.current = true;
-          } catch (srcErr) {
-            console.warn('createMediaElementSource note:', srcErr);
-          }
-        }
+      if (!audioCtxRef.current && videoRef.current) {
+        const ctx = new AudioContext();
         audioCtxRef.current = ctx;
-        gainNodeRef.current = gain;
+        mixRef.current = createMixBus(ctx, ctx.destination);
+        ctx.createMediaElementSource(videoRef.current).connect(mixRef.current.source);
       }
-
-      if (audioCtxRef.current?.state === 'suspended') {
-        audioCtxRef.current.resume().catch(() => {});
+      if (audioCtxRef.current && mixRef.current && musicRef.current && connectedMusicRef.current !== musicRef.current) {
+        audioCtxRef.current.createMediaElementSource(musicRef.current).connect(mixRef.current.music);
+        connectedMusicRef.current = musicRef.current;
       }
-    } catch (e) {
-      console.warn('Audio booster init warning:', e);
-    }
+      mixRef.current?.setLevels(sourceVolume, musicVolume, isMuted);
+      if (audioCtxRef.current?.state === 'suspended') void audioCtxRef.current.resume();
+    } catch (error) { console.warn('Audio preview:', error); }
   };
-
   useEffect(() => {
-    if (gainNodeRef.current && audioCtxRef.current) {
-      try {
-        gainNodeRef.current.gain.setValueAtTime(
-          isMuted ? 0 : Math.max(0, sourceVolume * 1.8),
-          audioCtxRef.current.currentTime
-        );
-      } catch {}
-    }
-    if (videoRef.current) {
-      videoRef.current.muted = sourceConnectedRef.current ? false : isMuted;
-      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
-    }
-  }, [sourceVolume, isMuted]);
+    mixRef.current?.setLevels(sourceVolume, musicVolume, isMuted);
+    if (videoRef.current) { videoRef.current.volume = mixRef.current ? 1 : sourceVolume; videoRef.current.muted = !mixRef.current && isMuted; }
+    if (musicRef.current) { musicRef.current.volume = mixRef.current ? 1 : musicVolume; musicRef.current.muted = !mixRef.current && isMuted; }
+  }, [sourceVolume, musicVolume, isMuted]);
+  useEffect(() => () => { void audioCtxRef.current?.close(); }, []);
 
   const editedDuration = Math.max(0, (trimEnd || duration) - trimStart);
 
@@ -231,20 +214,6 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   };
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = isMuted;
-      videoRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, sourceVolume));
-    }
-  }, [activeVideoUrl, sourceVolume, isMuted]);
-
-  useEffect(() => {
-    if (musicRef.current) {
-      musicRef.current.muted = isMuted;
-      musicRef.current.volume = isMuted ? 0 : Math.min(1, Math.max(0, musicVolume));
-    }
-  }, [musicVolume, isMuted]);
-
-  useEffect(() => {
     syncMusicPreview(true);
   }, [musicFitMode, musicDuration, trimStart, trimEnd, duration]);
 
@@ -263,19 +232,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const handleVideoFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (uploadedUrl) URL.revokeObjectURL(uploadedUrl);
-    const url = URL.createObjectURL(file);
-    setUploadedUrl(url);
-    setUploadedBlob(file);
-    setDuration(0);
-    setTrimStart(0);
-    setTrimEnd(0);
-    setCaptions([]);
-    setCurrentTime(0);
-    setHasCustomTrim(false);
-    if (onVideoUploaded) {
-      onVideoUploaded(file, url);
-    }
+    if (!file.type.startsWith('video/') && !/\.(mp4|webm|mov|m4v)$/i.test(file.name)) { onError('יש לבחור קובץ וידאו נתמך.'); return; }
+    onVideoUploaded?.(file, '');
   };
 
   useEffect(() => {
@@ -347,8 +305,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     ensureAudioBooster();
-    videoRef.current.muted = sourceConnectedRef.current ? false : isMuted;
-    videoRef.current.volume = isMuted ? 0 : 1.0;
+    videoRef.current.muted = mixRef.current ? false : isMuted;
+    videoRef.current.volume = mixRef.current ? 1 : (isMuted ? 0 : sourceVolume);
     const dur = videoRef.current.duration;
     if (videoRef.current.videoWidth && videoRef.current.videoHeight) {
       setVideoDimensions({
@@ -387,30 +345,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
     }
   };
 
-  const toggleMute = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    ensureAudioBooster();
-    setIsMuted(prev => {
-      const next = !prev;
-      if (gainNodeRef.current && audioCtxRef.current) {
-        try {
-          gainNodeRef.current.gain.setValueAtTime(
-            next ? 0 : Math.max(1.0, sourceVolume * 1.8),
-            audioCtxRef.current.currentTime
-          );
-        } catch {}
-      }
-      if (videoRef.current) {
-        videoRef.current.muted = sourceConnectedRef.current ? false : next;
-        videoRef.current.volume = next ? 0 : Math.min(1, Math.max(0, sourceVolume));
-      }
-      if (musicRef.current) {
-        musicRef.current.muted = next;
-        musicRef.current.volume = next ? 0 : Math.min(1, Math.max(0, musicVolume));
-      }
-      return next;
-    });
-  };
+  const toggleMute = (e?: React.MouseEvent) => { e?.stopPropagation(); ensureAudioBooster(); setIsMuted(value => !value); };
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -428,7 +363,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       if (videoRef.current.muted && !isMuted) {
         videoRef.current.muted = false;
       }
-      videoRef.current.volume = isMuted ? 0 : 1.0;
+      videoRef.current.volume = mixRef.current ? 1 : (isMuted ? 0 : sourceVolume);
       videoRef.current.play().then(() => {
         setIsPlaying(true);
         syncMusicPreview(true);
@@ -459,7 +394,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       const realDur = videoRef.current?.duration && isFinite(videoRef.current.duration) && videoRef.current.duration > 0
         ? videoRef.current.duration
         : (duration || initialDuration || 0);
-      const items = await generateCaptionsFromVideoBlob(activeVideoBlob, referenceScript, realDur);
+      const items = await generateCaptionsFromVideoBlob(targetBlob, referenceScript, realDur);
       setCaptions(items);
       if (items.some(item => item.needsReview)) onError('התמלול הושלם, אך הגהת הכתיב לא הושלמה. אפשר ללחוץ על הגהה או לתקן ידנית.');
     } catch (err: any) {
@@ -670,6 +605,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const handleExportMP4 = async () => {
     if (!videoRef.current) return;
+    videoRef.current.pause(); musicRef.current?.pause(); setIsPlaying(false);
     setIsExporting(true);
     setExportProgress(0);
 
@@ -710,24 +646,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
       a.href = url;
       a.download = fileName;
       a.click();
-      URL.revokeObjectURL(url);
+      setExportedFile(new File([mp4Blob], fileName, { type: mp4Blob.type }));
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-      // Mobile native share (Instagram / TikTok / WhatsApp / Save to Camera Roll)
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        try {
-          const shareFile = new File([mp4Blob], fileName, { type: mp4Blob.type || 'video/mp4' });
-          if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
-            await navigator.share({
-              files: [shareFile],
-              title: 'מצפן הלב - סרטון ערוך',
-            });
-          }
-        } catch (shareErr: any) {
-          if (shareErr.name !== 'AbortError') {
-            console.warn('Share note:', shareErr);
-          }
-        }
-      }
     } catch (err: any) {
       console.error('Export Error:', err);
       onError('שגיאה בייצוא הוידאו: ' + (err.message || ''));
@@ -797,39 +718,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   }
 
   return (
-    <div className="relative w-full h-full max-h-full bg-slate-950 overflow-hidden flex items-center justify-center p-0 select-none font-sans">
+    <div className={`relative w-full h-full max-h-full bg-slate-950 overflow-hidden flex items-center justify-center p-0 select-none font-sans ${isExporting ? "studio-exporting" : ""}`}>
 
       {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
-      <div 
-        id="editor-stage"
-        style={
-          exportAspectRatio === '9:16'
-            ? {
-                aspectRatio: '9 / 16',
-                maxWidth: '100%',
-                maxHeight: '100%',
-                width: 'min(100%, calc(100dvh * 9 / 16))',
-                height: 'min(100%, calc(100vw * 16 / 9))',
-              }
-            : exportAspectRatio === '16:9'
-              ? {
-                  aspectRatio: '16 / 9',
-                  maxWidth: '1200px',
-                  maxHeight: '100%',
-                  width: 'min(100%, calc(100dvh * 16 / 9))',
-                  height: 'auto',
-                }
-              : {
-                  aspectRatio: frameAspectRatio,
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  width: isPortrait ? 'min(100%, calc(100dvh * 9 / 16))' : '100%',
-                  height: isPortrait ? 'min(100%, calc(100vw * 16 / 9))' : 'auto',
-                }
-        }
-        className="relative flex items-center justify-center bg-black overflow-hidden transition-all duration-300 sm:rounded-3xl sm:border sm:border-slate-800/80 sm:shadow-[0_0_60px_rgba(0,0,0,0.85)]"
+      <CameraStage id="editor-stage" ratio={exportAspectRatio === '9:16' ? 9 / 16 : exportAspectRatio === '16:9' ? 16 / 9 : (videoDimensions ? videoDimensions.width / videoDimensions.height : 9 / 16)}
         onClick={(e) => {
-          if (activeEditorDrawer !== 'none') {
+          if (activeEditorDrawer !== 'none' && !(e.target as HTMLElement).closest('button,input,textarea,select,[role=dialog]')) {
             setActiveEditorDrawer('none');
             return;
           }
@@ -846,6 +740,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             controls={false}
             playsInline
             preload="auto"
+            onError={() => onError('לא ניתן לנגן את הקובץ. נסה MP4 או WebM אחר.')}
             onLoadedMetadata={handleLoadedMetadata}
             onTimeUpdate={handleTimeUpdate}
             onPlay={() => {
@@ -866,7 +761,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             }}
             style={{ filter: `brightness(${brightness}) contrast(${contrast})` }}
             className={`w-full h-full transition-all duration-200 ${
-              exportAspectRatio === '9:16' && videoFitMode === 'cover' ? 'object-cover' : 'object-contain'
+              videoFitMode === 'cover' ? 'object-cover' : 'object-contain'
             }`}
           />
         ) : (
@@ -1053,7 +948,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         )}
 
         {/* 2. FLOATING TOP HORIZONTAL GLASS BAR - ANCHORED INSIDE STAGE */}
-        <div className={`absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
+        <div className={`stage-topbar transition-all duration-300 ${
           isUiHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}>
           {/* Left: Back to Studio Button */}
@@ -1065,40 +960,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <span>אולפן</span>
           </button>
 
-          {/* Center: Format Switcher Glass Pill */}
-          <div className="flex items-center bg-black/60 backdrop-blur-xl p-1 rounded-full border border-white/20 shadow-xl">
-            <button
-              onClick={() => setExportAspectRatio('9:16')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                exportAspectRatio === '9:16'
-                  ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>9:16</span>
+          <div className="flex items-center gap-1">
+            <button title="שנה יחס תמונה" aria-label="שנה יחס תמונה"
+              onClick={() => setExportAspectRatio(value => value === '9:16' ? '16:9' : '9:16')}
+              className="px-3 py-1.5 rounded-full bg-black/60 border border-white/20 text-xs font-bold flex items-center gap-1.5">
+              {exportAspectRatio === '9:16' ? <Smartphone className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />}<span>{exportAspectRatio}</span>
             </button>
-            <button
-              onClick={() => setExportAspectRatio('16:9')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                exportAspectRatio === '16:9'
-                  ? 'bg-gradient-to-r from-indigo-600 to-rose-600 text-white shadow'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline">16:9</span>
-            </button>
-            {exportAspectRatio === '9:16' && (
-              <button
-                onClick={() => setVideoFitMode(prev => prev === 'cover' ? 'contain' : 'cover')}
-                className="ml-1 px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition-all"
-                title={videoFitMode === 'cover' ? 'מצב: מילוי מסך מלא (Cover)' : 'מצב: התאמת שוליים'}
-              >
-                <Scan className="w-3 h-3 text-indigo-300" />
-                <span>{videoFitMode === 'cover' ? 'מילוי' : 'שוליים'}</span>
-              </button>
-            )}
           </div>
 
           {/* Right: Export Button + Clean View Toggle */}
@@ -1115,7 +982,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <button
               onClick={handleExportMP4}
               disabled={isExporting}
-              className="px-3 sm:px-4 py-1.5 bg-gradient-to-r from-emerald-500 via-indigo-600 to-rose-600 hover:opacity-95 text-white rounded-full text-xs font-black flex items-center gap-1.5 shadow-xl shadow-emerald-500/30 border border-emerald-400/40 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+              className="px-3 sm:px-4 py-1.5 bg-teal-500 hover:opacity-95 text-white rounded-full text-xs font-black flex items-center gap-1.5 shadow-xl shadow-emerald-500/30 border border-emerald-400/40 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
               title="ייצא סרטון MP4"
             >
               {isExporting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
@@ -1124,8 +991,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         </div>
 
+        {exportedFile && typeof navigator.share === 'function' && <button
+          onClick={async e => { e.stopPropagation(); try { if (navigator.canShare?.({ files: [exportedFile] })) await navigator.share({ files: [exportedFile], title: 'מצפן הלב' }); else onError('השיתוף אינו נתמך בדפדפן הזה. הקובץ זמין בהורדות.'); } catch (error) { if ((error as Error).name !== 'AbortError') onError('לא ניתן לשתף. הקובץ זמין בהורדות.'); } }}
+          className="absolute bottom-24 left-3 z-30 rounded-full bg-teal-600 text-white px-4 py-2 text-xs font-bold">שתף את הסרטון</button>}
+
         {/* 3. TIKTOK / CAPCUT RIGHT VERTICAL GLASS TOOLS RAIL - ANCHORED INSIDE STAGE */}
-        <div className={`absolute top-14 right-2 sm:right-2.5 z-30 flex flex-col gap-1.5 sm:gap-2 items-center pointer-events-auto transition-all duration-300 ${
+        <div aria-label="כלי עריכה צפים" className={`stage-tools transition-all duration-300 ${
           isUiHidden ? 'opacity-0 pointer-events-none translate-x-4' : 'opacity-100 translate-x-0'
         }`}>
           {/* Auto Captions AI */}
@@ -1133,7 +1004,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             onClick={handleAutoCaptions}
             disabled={isGeneratingCaptions || !activeVideoUrl}
             title="תמלול כתוביות AI אוטומטי של הסרטון"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-amber-500 to-indigo-600 text-white flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:opacity-95 active:scale-90 transition-all cursor-pointer disabled:opacity-50 border border-amber-300/40"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-600 text-white flex flex-col items-center justify-center text-[8px] sm:text-[8.5px] font-bold shadow-xl hover:opacity-95 active:scale-90 transition-all cursor-pointer disabled:opacity-50 border border-amber-300/40"
           >
             {isGeneratingCaptions ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-200" />}
             <span>תמלול</span>
@@ -1211,6 +1082,10 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             <span>שכבות</span>
           </button>
 
+          <button onClick={() => setVideoFitMode(value => value === 'cover' ? 'contain' : 'cover')}
+            title="מילוי הפריים או הצגת הסרטון בשלמותו" className="w-10 h-10 rounded-full border border-white/20 text-xs flex flex-col items-center justify-center">
+            <Scan className="w-3.5 h-3.5" /><span>{videoFitMode === 'cover' ? 'מילוי' : 'שלם'}</span>
+          </button>
           {/* Social Safe Zones Toggle */}
           {exportAspectRatio === '9:16' && (
             <button
@@ -1240,7 +1115,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
         {/* 4. SLIDE-UP TRANSLUCENT BOTTOM SHEETS - ANCHORED INSIDE STAGE */}
         {activeEditorDrawer !== 'none' && (
-          <div className="absolute bottom-0 inset-x-0 z-40 max-h-[64vh] bg-slate-900/95 backdrop-blur-2xl rounded-t-3xl border-t border-slate-700/80 p-3.5 sm:p-5 shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-300 text-white text-xs">
+          <div role="dialog" aria-label="כלי עריכה" onKeyDown={e => { if (e.key === 'Escape') setActiveEditorDrawer('none'); }} onClick={e => e.stopPropagation()} className="stage-sheet flex flex-col text-white text-xs">
             
             {/* Drawer Top Header */}
             <div className="flex items-center justify-between border-b border-white/10 pb-2.5 mb-2.5 shrink-0">
@@ -1860,7 +1735,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </button>
         )}
 
-      </div>
+      </CameraStage>
 
       {/* Zero-Bloat Modular Visual Overlays Drawer Modal */}
       {isOverlayDrawerOpen && (
@@ -1879,6 +1754,19 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               </button>
             </div>
 
+            <div className="p-4 overflow-y-auto space-y-3 text-sm">
+              <div className="flex flex-wrap gap-2">
+                {([['hook-cover', 'קאבר פתיחה'], ['b-roll-full', 'תמונת B-Roll'], ['pip-corner', 'תמונה צפה']] as const).map(([type, label]) =>
+                  <label key={type} className="rounded-xl p-3 bg-slate-800 cursor-pointer">{label}<input aria-label={label} type="file" accept="image/*" className="hidden" onChange={e => handleFileUpload(e, type)} /></label>)}
+              </div>
+              {visualOverlays.map(layer => <div key={layer.id} className="flex items-center gap-2 bg-slate-800 p-2 rounded-xl">
+                <img src={layer.imageUrl} alt={layer.title} className="w-12 h-12 rounded object-cover" />
+                <span className="flex-1">{layer.title}</span>
+                <input aria-label="תחילת שכבה" className="w-16 bg-slate-900 p-1" type="number" step="0.1" min="0" value={layer.startTime} onChange={e => updateOverlayTimes(layer.id, Number(e.target.value), layer.endTime)} />
+                <input aria-label="סיום שכבה" className="w-16 bg-slate-900 p-1" type="number" step="0.1" min="0" value={layer.endTime} onChange={e => updateOverlayTimes(layer.id, layer.startTime, Number(e.target.value))} />
+                <button aria-label="מחק שכבה" onClick={() => removeVisualOverlay(layer.id)}><Trash2 className="w-4 h-4" /></button>
+              </div>)}
+            </div>
             <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end">
               <button
                 onClick={() => setIsOverlayDrawerOpen(false)}

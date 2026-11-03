@@ -7,7 +7,8 @@
     "dev": "vite --configLoader runner",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/caption-timing.test.cjs"
+    "test": "node --test tests/*.test.cjs",
+    "dev:network": "vite --configLoader runner --host 0.0.0.0"
   },
   "dependencies": {
     "@mediapipe/camera_utils": "^0.3.1675466862",
@@ -25,6 +26,8 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.2.7",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.47",
     "prettier": "^3.9.9",
     "tailwindcss": "^3.4.14",

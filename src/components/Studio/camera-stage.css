@@ -1,0 +1,160 @@
+.camera-workspace {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 45%, #192333, #080d17 75%);
+}
+.camera-stage {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #030509;
+  color: white;
+  isolation: isolate;
+}
+.camera-stage > video {
+  display: block;
+}
+.camera-stage .stage-topbar {
+  position: absolute;
+  inset: 12px 12px auto;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: auto;
+}
+.camera-stage .stage-topbar button {
+  min-height: 36px;
+}
+.camera-stage .stage-tools {
+  position: absolute;
+  top: 64px;
+  right: 10px;
+  bottom: 108px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: center;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 3px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #080d1770, #080d1720);
+}
+.camera-stage .stage-tools::-webkit-scrollbar {
+  display: none;
+}
+.camera-stage .stage-tools > button {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  background-color: #101724b8;
+  border-color: #ffffff24;
+  font-size: 9px;
+}
+.camera-stage button:focus-visible {
+  outline: 2px solid #83e3db;
+  outline-offset: 2px;
+}
+.camera-stage .stage-sheet {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 45;
+  max-height: 64%;
+  padding: 16px;
+  border-radius: 24px 24px 0 0;
+  background: #101827f5;
+  backdrop-filter: blur(24px);
+  border: 1px solid #ffffff24;
+  box-shadow: 0 -12px 48px #0007;
+  overflow-y: auto;
+}
+.camera-stage .stage-sheet::before {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 4px;
+  margin: -5px auto 12px;
+  border-radius: 8px;
+  background: #ffffff35;
+  flex-shrink: 0;
+}
+.camera-stage .stage-sheet button {
+  min-height: 34px;
+}
+.camera-stage .stage-sheet input:not([type="range"]),
+.camera-stage .stage-sheet textarea {
+  font-size: 16px;
+}
+.camera-stage .stage-sheet textarea {
+  max-height: 24vh;
+}
+@media (min-width: 640px) {
+  .camera-workspace {
+    padding: 10px;
+  }
+  .camera-stage {
+    border-radius: 22px;
+    box-shadow: 0 16px 80px #0008;
+    outline: 1px solid #ffffff14;
+  }
+}
+@media (max-height: 480px) {
+  .camera-stage .stage-tools {
+    top: 52px;
+    bottom: 72px;
+    gap: 5px;
+  }
+  .camera-stage .stage-sheet {
+    max-height: 76%;
+    padding: 10px;
+  }
+  .camera-stage .stage-topbar {
+    inset: 5px 7px auto;
+  }
+}
+
+.studio-exporting .stage-tools,
+.studio-exporting .stage-topbar,
+.studio-exporting .stage-sheet {
+  pointer-events: none;
+  opacity: 0.3;
+}
+@media (max-width: 420px) {
+  .camera-stage .stage-topbar {
+    inset: 8px 6px auto;
+    gap: 3px;
+  }
+  .camera-stage .stage-topbar button {
+    padding-left: 7px;
+    padding-right: 7px;
+    font-size: 10px;
+    gap: 3px;
+  }
+}
+
+.camera-stage {
+  container-type: inline-size;
+}
+@container (max-width:320px) {
+  .stage-topbar button {
+    padding-left: 7px;
+    padding-right: 7px;
+    font-size: 10px;
+  }
+  .stage-topbar button span {
+    display: none;
+  }
+}

@@ -82,15 +82,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setIsTestingGemini(true);
     setGeminiTestResult(null);
     try {
-      setStoredApiKey(cleanKey);
-      setStoredModel(geminiModel);
       const models = await getAvailableModelsForApiKey(cleanKey, true);
       setAvailableGeminiModels(models);
       const modelToTest = models.some((item) => item.id === geminiModel)
         ? geminiModel
         : models[0]?.id || geminiModel;
       setGeminiModel(modelToTest);
-      setStoredModel(modelToTest);
       const res = await testGeminiApiKey(cleanKey, modelToTest);
       setGeminiTestResult(res);
       if (res.modelUsed) setGeminiModel(res.modelUsed);
@@ -102,11 +99,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div role="dialog" aria-modal="true" aria-label="הגדרות Google Gemini" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative text-slate-100">
         
         <button
           onClick={onClose}
+          aria-label="סגור הגדרות"
           className="absolute top-4 left-4 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
         >
           <X className="w-5 h-5" />

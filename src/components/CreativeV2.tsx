@@ -49,13 +49,8 @@ export function CreativeV2({
   onScriptChange?: (script: string) => void;
 }) {
   const [inputMode, setInputMode] = useState<"ai" | "paste">("ai");
-  const [pastedScript, setPastedScript] = useState<string>(currentScript || "");
-
-  useEffect(() => {
-    if (currentScript && !pastedScript) {
-      setPastedScript(currentScript);
-    }
-  }, [currentScript]);
+  const pastedScript = currentScript || '';
+  const setPastedScript = (text: string) => onScriptChange?.(text);
 
   const handlePasteFromClipboard = async () => {
     try {
