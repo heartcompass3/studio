@@ -23,6 +23,34 @@
 .camera-stage > video {
   display: block;
 }
+.camera-stage input[type="text"],
+.camera-stage textarea,
+.sv-root input:not([type]),
+.sv-root input[type="text"],
+.sv-root textarea {
+  direction: rtl;
+  text-align: right;
+}
+.overlay-drag-handle {
+  position: absolute;
+  z-index: 24;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 10px;
+}
+.overlay-drag-handle:active {
+  cursor: grabbing;
+}
+.overlay-drag-handle.is-selected {
+  z-index: 26;
+}
+.overlay-drag-handle.is-selected,
+.overlay-drag-handle:focus-visible {
+  outline: 2px dashed #5eead4;
+  outline-offset: 3px;
+}
 .stage-capture-bar {
   position: absolute;
   inset: auto 12px max(24px, env(safe-area-inset-bottom, 0px));

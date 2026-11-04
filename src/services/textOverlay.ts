@@ -5,6 +5,33 @@ export interface TextRenderSettings {
   headlinePositionY?: number;
   headlineFontScale?: number;
 }
+export interface OverlayBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function dragTextPosition(
+  bounds: OverlayBounds,
+  frameWidth: number,
+  frameHeight: number,
+  dx: number,
+  dy: number,
+) {
+  const center = safeTextCenter(
+    frameWidth,
+    frameHeight,
+    bounds.width,
+    bounds.height,
+    ((bounds.x + bounds.width / 2 + dx) / frameWidth) * 100,
+    ((bounds.y + bounds.height / 2 + dy) / frameHeight) * 100,
+  );
+  return {
+    x: (center.x / frameWidth) * 100,
+    y: (center.y / frameHeight) * 100,
+  };
+}
 export const overlayNumber = (
   value: number | undefined,
   fallback: number,

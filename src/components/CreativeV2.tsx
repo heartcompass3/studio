@@ -348,7 +348,7 @@ export function CreativeV2({
               </button>
             </div>
             <label className="sv-field">
-              <textarea
+              <textarea dir="rtl"
                 aria-label="טקסט התסריט"
                 rows={10}
                 value={pastedScript}
@@ -409,7 +409,7 @@ export function CreativeV2({
           </div>
           <label className="sv-field">
             הרגע או המסר
-            <textarea
+            <textarea dir="rtl"
               aria-label="הרגע או המסר"
               value={brief.topic}
               rows={4}
@@ -748,7 +748,7 @@ export function CreativeV2({
                 </div>
                 <label className="sv-field">
                   ההוק המדובר
-                  <textarea
+                  <textarea dir="rtl"
                     aria-label="ההוק המדובר"
                     rows={2}
                     value={pack.hooks[chosen].spoken}
@@ -770,7 +770,7 @@ export function CreativeV2({
                       0{i + 2} / {b.stage}
                       <span>כ־{b.seconds} שניות</span>
                     </div>
-                    <textarea
+                    <textarea dir="rtl"
                       aria-label={`פעימה ${i + 2}`}
                       value={b.text}
                       rows={3}
@@ -790,7 +790,7 @@ export function CreativeV2({
                 ) : (
                   <label className="sv-field">
                     משפט סיום
-                    <textarea
+                    <textarea dir="rtl"
                       aria-label="משפט סיום"
                       value={pack.cta}
                       rows={2}
@@ -822,7 +822,7 @@ export function CreativeV2({
                         <span>הדבק מהלוח לטקסט המלא</span>
                       </button>
                     </div>
-                    <textarea
+                    <textarea dir="rtl"
                       aria-label="טקסט מלא"
                       value={script}
                       rows={format === "reel" ? 16 : 32}

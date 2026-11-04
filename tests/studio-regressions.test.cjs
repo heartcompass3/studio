@@ -39,15 +39,69 @@ global.ResizeObserver = class {
   disconnect() {}
 };
 global.IS_REACT_ACT_ENVIRONMENT = true;
-dom.window.HTMLMediaElement.prototype.pause = function () {};
+dom.window.HTMLMediaElement.prototype.pause = function () {
+  this._pauses = (this._pauses || 0) + 1;
+};
 dom.window.HTMLMediaElement.prototype.load = function () {};
 dom.window.HTMLMediaElement.prototype.play = function () {
+  this._plays = (this._plays || 0) + 1;
   return Promise.resolve();
 };
 dom.window.HTMLCanvasElement.prototype.getContext = () => ({
   measureText: (text) => ({ width: text.length * 8 }),
   clearRect() {},
 });
+Object.defineProperties(dom.window.HTMLElement.prototype, {
+  clientWidth: {
+    configurable: true,
+    get() {
+      return this.id === "editor-stage" ? 360 : 0;
+    },
+  },
+  clientHeight: {
+    configurable: true,
+    get() {
+      return this.id === "editor-stage" ? 640 : 0;
+    },
+  },
+});
+const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+  return this.id === "editor-stage"
+    ? { left: 0, top: 0, width: 360, height: 640, right: 360, bottom: 640 }
+    : originalRect.call(this);
+};
+dom.window.HTMLElement.prototype.setPointerCapture = function (id) {
+  this._pointer = id;
+};
+dom.window.HTMLElement.prototype.hasPointerCapture = function (id) {
+  return this._pointer === id;
+};
+dom.window.HTMLElement.prototype.releasePointerCapture = function () {
+  this._pointer = null;
+};
+const audioParam = () => ({ value: 1, setTargetAtTime() {} });
+const audioNode = () => ({
+  connect(other) {
+    return other;
+  },
+  gain: audioParam(),
+  threshold: audioParam(),
+  knee: audioParam(),
+  ratio: audioParam(),
+  attack: audioParam(),
+  release: audioParam(),
+});
+global.AudioContext = class {
+  state = "running";
+  currentTime = 0;
+  destination = audioNode();
+  createGain = audioNode;
+  createDynamicsCompressor = audioNode;
+  createMediaElementSource = audioNode;
+  resume = async () => {};
+  close = async () => {};
+};
 document.fonts = { ready: Promise.resolve() };
 
 const React = require("react");
@@ -76,12 +130,36 @@ function load(file) {
     if (name.endsWith(".css")) return {};
     if (name.includes("geminiService")) return gemini;
     // AI and encoders are external boundaries; these tests cover real UI state and IDB.
-    if (name.includes("mp4ExportService"))
+    if (name.includes("mp4ExportService")) {
+      const bounds = (w, h, x = 50, y = 74) => ({
+        x: (w * x) / 100 - 60,
+        y: (h * y) / 100 - 20,
+        width: 120,
+        height: 40,
+      });
       return {
-        drawStudioSubtitle() {},
-        drawTextCallout() {},
-        drawHeadlineOverlay() {},
+        drawStudioSubtitle: (
+          _ctx,
+          _text,
+          w,
+          h,
+          _style,
+          _word,
+          _karaoke,
+          y,
+          x,
+        ) => bounds(w, h, x, y),
+        drawTextCallout: (_ctx, item, w, h) =>
+          bounds(w, h, item.positionX ?? 50, item.positionY ?? 30),
+        drawHeadlineOverlay: (_ctx, _text, w, h, settings) =>
+          bounds(
+            w,
+            h,
+            settings.headlinePositionX ?? 50,
+            settings.headlinePositionY ?? 10,
+          ),
       };
+    }
     if (name.includes("webmFixer"))
       return { fixWebmDuration: async (blob) => blob };
     if (!name.startsWith(".")) return require(name);
@@ -101,6 +179,7 @@ function load(file) {
 const { fitStage } = load("components/Studio/CameraStage.tsx");
 const { finishAudioSamples } = load("services/audioMix.ts");
 const { fitMediaFrame } = load("services/mediaGeometry.ts");
+const { dragTextPosition } = load("services/textOverlay.ts");
 const projectStore = load("services/studioProject.ts");
 const flush = async (ms = 0) =>
   act(async () => {
@@ -126,6 +205,40 @@ function fill(el, value) {
   el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 }
 
+async function dragOverlay(id, dx, dy, pointerType = "touch", cancel = false) {
+  const handle = document.querySelector(`[data-overlay-id="${id}"]`);
+  assert.ok(handle, `Missing drag handle: ${id}`);
+  const send = (type, x, y) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 },
+      isPrimary: { value: true },
+      pointerType: { value: pointerType },
+    });
+    handle.dispatchEvent(event);
+  };
+  await act(async () => send("pointerdown", 100, 100));
+  await act(async () => send("pointermove", 100 + dx, 100 + dy));
+  await act(async () =>
+    send(cancel ? "pointercancel" : "pointerup", 100 + dx, 100 + dy),
+  );
+  await act(async () => handle.click()); // Browsers may synthesize click after pointerup.
+  return handle;
+}
+test("drag positioning starts at the painted box and keeps text inside the frame", () => {
+  const bounds = { x: 120, y: 200, width: 120, height: 40 };
+  const moved = dragTextPosition(bounds, 360, 640, 36, 64);
+  assert.equal(moved.x, 60);
+  assert.equal(moved.y, 44.375);
+  const edge = dragTextPosition(bounds, 360, 640, 10000, -10000);
+  assert.ok(edge.x < 100 && edge.y > 0);
+});
 test("portrait/landscape stages preserve ratio inside short, tall, keyboard and desktop containers", () => {
   for (const [w, h] of [
     [360, 560],
@@ -254,6 +367,29 @@ test("real app keeps sheets open, synchronizes script, replaces imported video a
     return document.querySelector("#editor-stage video").src;
   }
   const first = await importVideo("first.mp4");
+  const player = document.querySelector("#editor-stage video");
+  await act(async () =>
+    document.querySelector('button[aria-label="נגן סרטון"]').click(),
+  );
+  assert.equal(player._plays, 1, "Touching the video did not start playback");
+  const pauses = player._pauses || 0;
+  await act(async () => player.click());
+  assert.ok(
+    player._pauses > pauses,
+    "Touching the video did not pause playback",
+  );
+  assert.ok(button("כתוביות"), "Tapping video hid the editing controls");
+  await act(async () => player.click());
+  const playsBeforeClose = player._plays;
+  await click("כתוביות");
+  const pausesBeforeClose = player._pauses;
+  await act(async () => player.click());
+  assert.ok(!document.querySelector("#editor-stage [role=dialog]"));
+  assert.ok(
+    player._pauses > pausesBeforeClose,
+    "Touching the frame with a sheet open must pause",
+  );
+  assert.equal(player._plays, playsBeforeClose);
   await click("כתוביות");
   await click("הוסף");
   assert.ok(
@@ -266,59 +402,118 @@ test("real app keeps sheets open, synchronizes script, replaces imported video a
       "כתובית שתשוחזר",
     ),
   );
-  await act(async () => {
-    fill(
-      document.querySelector('input[aria-label="כתוביות — מיקום אופקי"]'),
-      "28",
-    );
-    fill(
-      document.querySelector('input[aria-label="כתוביות — מיקום אנכי"]'),
-      "44",
-    );
+  const captionInput = document.querySelector(
+    "#editor-stage [role=dialog] input[type=text]",
+  );
+  assert.equal(captionInput.getAttribute("dir"), "rtl");
+  await act(async () =>
     fill(
       document.querySelector('input[aria-label="כתוביות — גודל טקסט"]'),
       "145",
-    );
-  });
-  await act(async () =>
-    document.querySelector('#editor-stage button[title="סגור חלונית"]').click(),
+    ),
+  );
+  await click("מקם בגרירה");
+  assert.ok(!document.querySelector("#editor-stage [role=dialog]"));
+  await act(async () => player.click());
+  const playsBeforeDrag = player._plays;
+  await dragOverlay("caption", -79.2, -192, "touch");
+  assert.equal(
+    player._plays,
+    playsBeforeDrag,
+    "Dragging resumed playback after pointerup",
   );
   await click("מדבקות");
   await click("🔥 שימו לב!");
+  const stickerInput = document.querySelector(
+    'input[aria-label="טקסט המדבקה"]',
+  );
+  assert.equal(stickerInput.getAttribute("dir"), "rtl");
   await act(async () => {
-    const input = (label) =>
-      [...document.querySelectorAll("input[aria-label]")].find(
-        (item) => item.getAttribute("aria-label") === label,
-      );
-    fill(input("מדבקה: 🔥 שימו לב! — מיקום אופקי"), "70");
-    fill(input("מדבקה: 🔥 שימו לב! — מיקום אנכי"), "26");
-    fill(input("מדבקה: 🔥 שימו לב! — גודל טקסט"), "160");
+    const input = [...document.querySelectorAll("input[aria-label]")].find(
+      (item) =>
+        item.getAttribute("aria-label") === "מדבקה: 🔥 שימו לב! — גודל טקסט",
+    );
+    fill(input, "160");
   });
+  await click("מקם בגרירה");
+  const stickerId = document
+    .querySelector('[data-overlay-id^="callout:"]')
+    .getAttribute("data-overlay-id");
+  await dragOverlay(stickerId, 72, -25.6, "mouse");
+  const sticker = await dragOverlay(stickerId, 0, 0, "touch", true);
+  assert.equal(
+    sticker._pointer,
+    null,
+    "Cancelled touches must release pointer capture",
+  );
+  await click("סגנון");
+  const headline = document.querySelector('input[aria-label="טקסט הכותרת"]');
+  assert.ok(headline, "Missing headline field");
+  assert.equal(headline.getAttribute("dir"), "rtl");
+  await act(async () => fill(headline, "כותרת לגרירה"));
+  const headlinePlace = [...document.querySelectorAll("fieldset")]
+    .find((el) => el.querySelector("legend")?.textContent.includes("כותרת"))
+    .querySelector("button");
+  await act(async () => headlinePlace.click());
+  const headlineHandle = document.querySelector('[data-overlay-id="headline"]');
+  assert.equal(document.activeElement, headlineHandle);
+  const timeBeforeKeyboardMove = player.currentTime;
+  await act(async () =>
+    headlineHandle.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  assert.equal(
+    player.currentTime,
+    timeBeforeKeyboardMove,
+    "Moving selected text must not seek the video",
+  );
   await flush(750);
   const positioned = (await projectStore.readStudioProject()).editor;
-  assert.equal(positioned.captionPositionX, 28);
-  assert.equal(positioned.captionPositionY, 44);
+  assert.ok(Math.abs(positioned.headlinePositionX - 55) < 1e-8);
+  assert.ok(Math.abs(positioned.captionPositionX - 28) < 1e-8);
+  assert.ok(Math.abs(positioned.captionPositionY - 44) < 1e-8);
   assert.equal(positioned.captionFontScale, 1.45);
   assert.equal(positioned.textCallouts[0].positionX, 70);
-  assert.equal(positioned.textCallouts[0].positionY, 26);
+  assert.ok(Math.abs(positioned.textCallouts[0].positionY - 26) < 1e-8);
   assert.equal(positioned.textCallouts[0].fontScale, 1.6);
   assert.equal(
     (await projectStore.readStudioProject()).editor.captions[0].text,
     "כתובית שתשוחזר",
   );
+  const placementBeforeReload = [
+    ...document.querySelectorAll("[data-overlay-id]"),
+  ].map((el) => ({
+    id: el.getAttribute("data-overlay-id"),
+    left: el.style.left,
+    top: el.style.top,
+  }));
   await act(async () => root.unmount());
   root = createRoot(document.getElementById("root"));
   await act(async () => root.render(React.createElement(App)));
   await flush(50);
   await click("עריכה");
+  for (const previous of placementBeforeReload) {
+    const restored = document.querySelector(
+      `[data-overlay-id="${previous.id}"]`,
+    );
+    assert.ok(restored, `Overlay missing after reload: ${previous.id}`);
+    assert.equal(restored.style.left, previous.left);
+    assert.equal(restored.style.top, previous.top);
+  }
   await click("כתוביות");
   assert.equal(
     document.querySelector('input[aria-label="כתוביות — גודל טקסט"]').value,
     "145",
   );
-  assert.equal(
-    document.querySelector('input[aria-label="כתוביות — מיקום אופקי"]').value,
-    "28",
+  assert.ok(
+    !document.querySelector('input[aria-label="כתוביות — מיקום אופקי"]'),
+    "Position sliders should be replaced by direct dragging",
   );
   assert.equal(
     document.querySelector("#editor-stage [role=dialog] input[type=text]")

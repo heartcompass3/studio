@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import type {
   CaptionItem,
   SubtitleStyle,
@@ -9,17 +9,36 @@ import {
   drawTextCallout,
   drawHeadlineOverlay,
 } from "../../services/mp4ExportService";
-import type { TextRenderSettings } from "../../services/textOverlay";
+import type {
+  TextRenderSettings,
+  OverlayBounds,
+} from "../../services/textOverlay";
+import { DraggableOverlay } from "./DraggableOverlay";
 
-/** Preview uses the export painter so placement, font size and wrapping match the file. */
+interface Interaction {
+  selected?: boolean;
+  onStart?: () => void;
+  onMove?: (x: number, y: number) => void;
+}
+/** Export painters return the same measured box used for the drag hit target. */
 function OverlayCanvas({
+  id,
   label,
   draw,
-}: {
+  selected,
+  onStart,
+  onMove,
+}: Interaction & {
+  id: string;
   label: string;
-  draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
+  draw: (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+  ) => OverlayBounds | undefined;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [bounds, setBounds] = useState<OverlayBounds | null>(null);
   useLayoutEffect(() => {
     const canvas = ref.current,
       stage = canvas?.parentElement;
@@ -33,7 +52,23 @@ function OverlayCanvas({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      draw(ctx, canvas.width, canvas.height);
+      const measured = draw(ctx, canvas.width, canvas.height);
+      const next = measured
+        ? {
+            x: measured.x / ratio,
+            y: measured.y / ratio,
+            width: measured.width / ratio,
+            height: measured.height / ratio,
+          }
+        : null;
+      setBounds((previous) =>
+        previous?.x === next?.x &&
+        previous?.y === next?.y &&
+        previous?.width === next?.width &&
+        previous?.height === next?.height
+          ? previous
+          : next,
+      );
     };
     const observer = new ResizeObserver(paint);
     observer.observe(stage);
@@ -45,12 +80,24 @@ function OverlayCanvas({
     };
   }, [draw]);
   return (
-    <canvas
-      ref={ref}
-      role="img"
-      aria-label={label}
-      className="absolute inset-0 w-full h-full pointer-events-none z-20"
-    />
+    <>
+      <canvas
+        ref={ref}
+        role="img"
+        aria-label={label}
+        className="absolute inset-0 w-full h-full pointer-events-none z-20"
+      />
+      {bounds && onMove && (
+        <DraggableOverlay
+          id={id}
+          label={label}
+          bounds={bounds}
+          selected={selected}
+          onStart={() => onStart?.()}
+          onMove={onMove}
+        />
+      )}
+    </>
   );
 }
 export function CaptionPreview({
@@ -61,7 +108,8 @@ export function CaptionPreview({
   positionY = 74,
   positionX = 50,
   fontScale = 1,
-}: {
+  ...interaction
+}: Interaction & {
   caption: CaptionItem;
   time: number;
   style: SubtitleStyle;
@@ -84,13 +132,15 @@ export function CaptionPreview({
   );
   return (
     <OverlayCanvas
-      label={caption.text}
-      draw={(ctx, width, height) =>
+      id="caption"
+      label={`כתובית: ${caption.text}`}
+      {...interaction}
+      draw={(ctx, w, h) =>
         drawStudioSubtitle(
           ctx,
           caption.text,
-          width,
-          height,
+          w,
+          h,
           style,
           word,
           karaoke,
@@ -105,32 +155,44 @@ export function CaptionPreview({
 export function CalloutPreview({
   callouts,
   time,
+  selectedId,
+  onStart,
+  onMove,
 }: {
   callouts: TextCalloutItem[];
   time: number;
+  selectedId?: string | null;
+  onStart?: (id: string) => void;
+  onMove?: (id: string, x: number, y: number) => void;
 }) {
-  const active = callouts.filter(
-    (item) => time >= item.startTime && time < item.endTime,
-  );
   return (
-    <OverlayCanvas
-      label={active.map((item) => item.text).join(" · ")}
-      draw={(ctx, w, h) =>
-        active.forEach((item) => drawTextCallout(ctx, item, w, h))
-      }
-    />
+    <>
+      {callouts
+        .filter((item) => time >= item.startTime && time < item.endTime)
+        .map((item) => (
+          <OverlayCanvas
+            key={item.id}
+            id={`callout:${item.id}`}
+            label={`מדבקה: ${item.text}`}
+            selected={selectedId === `callout:${item.id}`}
+            onStart={() => onStart?.(item.id)}
+            onMove={onMove ? (x, y) => onMove(item.id, x, y) : undefined}
+            draw={(ctx, w, h) => drawTextCallout(ctx, item, w, h)}
+          />
+        ))}
+    </>
   );
 }
 export function HeadlinePreview({
   text,
   settings,
-}: {
-  text: string;
-  settings: TextRenderSettings;
-}) {
+  ...interaction
+}: Interaction & { text: string; settings: TextRenderSettings }) {
   return (
     <OverlayCanvas
-      label={text}
+      id="headline"
+      label={`כותרת: ${text}`}
+      {...interaction}
       draw={(ctx, w, h) => drawHeadlineOverlay(ctx, text, w, h, settings)}
     />
   );

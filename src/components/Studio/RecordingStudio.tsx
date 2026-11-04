@@ -1317,7 +1317,7 @@ export const RecordingStudio: React.FC<RecordingStudioProps> = ({
                       )}
                     </div>
                   </div>
-                  <textarea
+                  <textarea dir="rtl"
                     rows={4}
                     value={liveScript}
                     onChange={(e) => handleUpdateScript(e.target.value)}

@@ -114,6 +114,7 @@ export const drawHeadlineOverlay = (
   });
 
   ctx.restore();
+  return { x: cardX, y: cardY, width: cardW, height: cardH };
 };
 
 export const drawVisualOverlay = (
@@ -255,6 +256,7 @@ export const drawTextCallout = (
   lines.forEach((line, index) => ctx.fillText(line, posX, posY + (index - (lines.length - 1) / 2) * lineHeight, maxTextWidth));
 
   ctx.restore();
+  return { x: boxX, y: boxY, width: boxW, height: boxH };
 };
 
 export const drawStudioSubtitle = (
@@ -397,6 +399,12 @@ export const drawStudioSubtitle = (
   });
 
   ctx.restore();
+  return {
+    x: center.x - blockWidth / 2,
+    y: baseY - (totalBlockHeight + fontSize * .4) / 2,
+    width: blockWidth,
+    height: totalBlockHeight + fontSize * .4,
+  };
 };
 
 /**

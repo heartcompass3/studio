@@ -63,6 +63,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
   // Immersive TikTok/Reels Floating HUD Controls
   const [isUiHidden, setIsUiHidden] = useState(false);
+  const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
   const [activeEditorDrawer, setActiveEditorDrawer] = useState<"none" | "captions" | "style" | "music" | "trim" | "callouts">("none");
   const [captionPositionY, setCaptionPositionY] = useState(initialDraft?.captionPositionY ?? (74));
   const [captionPositionX, setCaptionPositionX] = useState(initialDraft?.captionPositionX ?? 50);
@@ -277,9 +278,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   // Keyboard shortcuts (Space = Play/Pause, Arrow Left/Right = Seek 1s)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!active) return;
+      if (!active || e.defaultPrevented) return;
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (target?.closest('input,textarea,button,select,[role=button],[contenteditable=true]')) {
         return;
       }
 
@@ -380,6 +381,23 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         console.warn('Play error:', e);
       });
     }
+  };
+
+  const startPlacement = (id: string, time?: number) => {
+    videoRef.current?.pause();
+    musicRef.current?.pause();
+    setIsPlaying(false);
+    if (time !== undefined && videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+    setSelectedOverlay(id);
+    setActiveEditorDrawer('none');
+    setIsUiHidden(false);
+  };
+  const placeCaptions = () => {
+    const caption = captions.find(item => captionIsActive(item, currentTime)) || captions[0];
+    startPlacement('caption', caption?.start);
   };
 
   // Auto Captions via Gemini AI (with Reference Script anchoring)
@@ -731,15 +749,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
       {/* Centered Phone Canvas Stage - strictly 9:16 portrait on desktop or 16:9 */}
       <CameraStage id="editor-stage" ratio={exportAspectRatio === '9:16' ? 9 / 16 : exportAspectRatio === '16:9' ? 16 / 9 : (videoDimensions ? videoDimensions.width / videoDimensions.height : 9 / 16)}
-        onClick={(e) => {
-          if (activeEditorDrawer !== 'none' && !(e.target as HTMLElement).closest('button,input,textarea,select,[role=dialog]')) {
+        onClick={e => {
+          if (isExporting || (e.target as HTMLElement).closest('button,input,textarea,select,[role=button],[role=dialog]')) return;
+          if (activeEditorDrawer !== 'none') {
             setActiveEditorDrawer('none');
+            videoRef.current?.pause();
+            musicRef.current?.pause();
+            setIsPlaying(false);
             return;
           }
-          const target = e.target as HTMLElement;
-          if (target.tagName === 'VIDEO' || target.id === 'editor-stage') {
-            setIsUiHidden(prev => !prev);
-          }
+          setSelectedOverlay(null);
+          togglePlay();
         }}
       >
         {activeVideoUrl ? (
@@ -817,13 +837,12 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
 
         {/* Center Play Overlay when paused */}
         {activeVideoUrl && !isPlaying && !isExporting && (
-          <div 
-            onClick={togglePlay}
+          <div
             className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/40 transition-colors pointer-events-auto z-10 cursor-pointer"
           >
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-r from-indigo-600 to-rose-600 hover:opacity-95 text-white flex items-center justify-center shadow-2xl transform transition-transform hover:scale-110 active:scale-95">
+            <button type="button" aria-label="נגן סרטון" onClick={e => { e.stopPropagation(); togglePlay(); }} className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-r from-indigo-600 to-rose-600 hover:opacity-95 text-white flex items-center justify-center shadow-2xl transform transition-transform hover:scale-110 active:scale-95">
               <Play className="w-7 h-7 sm:w-8 sm:h-8 fill-current ml-1" />
-            </div>
+            </button>
           </div>
         )}
 
@@ -859,7 +878,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         })()}
 
         {/* Top Headline Hook Bar Overlay */}
-        {headlineText && !isExporting && <HeadlinePreview text={headlineText} settings={{ headlinePositionX, headlinePositionY, headlineFontScale }} />}
+        {headlineText && !isExporting && <HeadlinePreview text={headlineText} selected={selectedOverlay === 'headline'} onStart={() => startPlacement('headline')} onMove={(x, y) => { setHeadlinePositionX(x); setHeadlinePositionY(y); }} settings={{ headlinePositionX, headlinePositionY, headlineFontScale }} />}
 
         {/* Social Safe Zones Overlay (TikTok / Reels / Shorts HUD) */}
         {exportAspectRatio === '9:16' && showSafeZones && !isExporting && (
@@ -902,7 +921,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         )}
 
-        {!isExporting && textCallouts.length > 0 && <CalloutPreview callouts={textCallouts} time={currentTime} />}
+        {!isExporting && textCallouts.length > 0 && <CalloutPreview callouts={textCallouts} time={currentTime} selectedId={selectedOverlay}
+          onStart={id => startPlacement(`callout:${id}`)} onMove={(id, x, y) => setTextCallouts(items => items.map(item => item.id === id ? { ...item, positionX: x, positionY: y } : item))} />}
 
         {displayCaption && !isExporting && (
           <CaptionPreview 
@@ -910,6 +930,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             time={currentTime} 
             style={subtitleStyle} 
             karaoke={karaokeEnabled} 
+            selected={selectedOverlay === 'caption'} onStart={() => startPlacement('caption')} onMove={(x, y) => { setCaptionPositionX(x); setCaptionPositionY(y); }}
             positionX={captionPositionX} fontScale={captionFontScale}
             positionY={captionPositionY} 
           />
@@ -955,8 +976,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           {/* Right: Export Button + Clean View Toggle */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             <button
-              onClick={() => setIsUiHidden(prev => !prev)}
-              title="תצוגה נקייה ללא סרגלים (הקש במסך לחזרה)"
+              onClick={() => { setSelectedOverlay(null); setIsUiHidden(prev => !prev); }}
+              title="תצוגה נקייה ללא סרגלים"
               className="px-2 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1 shadow-xl cursor-pointer active:scale-95 transition-all"
             >
               <Eye className="w-3.5 h-3.5 text-cyan-300" />
@@ -1151,7 +1172,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               {/* Captions Drawer Content */}
               {activeEditorDrawer === 'captions' && (
                 <div className="space-y-2.5">
-                  <OverlayControls label="כתוביות" x={captionPositionX} y={captionPositionY} scale={captionFontScale}
+                  <OverlayControls onPlace={placeCaptions} label="כתוביות" scale={captionFontScale}
                     onX={setCaptionPositionX} onY={setCaptionPositionY} onScale={setCaptionFontScale} />
                   {/* Timing Shift Helpers */}
                   {captions.length > 0 && (
@@ -1248,13 +1269,14 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                       type="text"
                       dir="rtl"
                       value={headlineText}
+                      aria-label="טקסט הכותרת"
                       onChange={(e) => setHeadlineText(e.target.value)}
                       placeholder="למשל: למה כשהילד צועק הוא בעצם נבהל?"
                       className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-white outline-none placeholder:text-slate-500"
                     />
                   </div>
 
-                  <OverlayControls label="כותרת" x={headlinePositionX} y={headlinePositionY} scale={headlineFontScale}
+                  <OverlayControls onPlace={() => startPlacement('headline')} label="כותרת" scale={headlineFontScale}
                     onX={setHeadlinePositionX} onY={setHeadlinePositionY} onScale={setHeadlineFontScale} defaultY={10} />
 
                   {/* Style Selector Grid */}
@@ -1312,7 +1334,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     />
                   </div>
 
-                  <OverlayControls label="כתוביות" x={captionPositionX} y={captionPositionY} scale={captionFontScale}
+                  <OverlayControls onPlace={placeCaptions} label="כתוביות" scale={captionFontScale}
                     onX={setCaptionPositionX} onY={setCaptionPositionY} onScale={setCaptionFontScale} />
                 </div>
               )}
@@ -1355,7 +1377,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     </div>
                   </div>
 
-                  <OverlayControls label="מדבקה חדשה" x={newCalloutPosX} y={newCalloutPosY} scale={newCalloutFontScale}
+                  <OverlayControls label="מדבקה חדשה" scale={newCalloutFontScale}
                     onX={setNewCalloutPosX} onY={setNewCalloutPosY} onScale={setNewCalloutFontScale} defaultY={30} />
                   {/* Viral Presets Grid */}
                   <div>
@@ -1463,11 +1485,11 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                         <div key={callout.id} className="space-y-2 p-3 rounded-xl bg-slate-800/70 border border-slate-700">
                           <div className="flex items-center gap-2">
                             <button title="הצג מדבקה" onClick={() => { videoRef.current?.pause(); setIsPlaying(false); setCurrentTime(callout.startTime); if (videoRef.current) videoRef.current.currentTime = callout.startTime; }} className="p-2"><Play className="w-4 h-4" /></button>
-                            <input aria-label="טקסט המדבקה" className="min-w-0 flex-1 rounded-lg bg-slate-900 p-2" value={callout.text}
+                            <input dir="rtl" aria-label="טקסט המדבקה" className="min-w-0 flex-1 rounded-lg bg-slate-900 p-2" value={callout.text}
                               onChange={e => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, text: e.target.value } : item))} />
                             <button title="מחק מדבקה" onClick={() => setTextCallouts(items => items.filter(item => item.id !== callout.id))} className="p-2 text-rose-300"><Trash2 className="w-4 h-4" /></button>
                           </div>
-                          <OverlayControls label={`מדבקה: ${callout.text}`} x={callout.positionX ?? 50} y={callout.positionY ?? 30} scale={callout.fontScale ?? 1} defaultY={30}
+                          <OverlayControls onPlace={() => startPlacement(`callout:${callout.id}`, callout.startTime)} label={`מדבקה: ${callout.text}`} scale={callout.fontScale ?? 1} defaultY={30}
                             onX={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, positionX: value } : item))}
                             onY={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, positionY: value } : item))}
                             onScale={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, fontScale: value } : item))} />
