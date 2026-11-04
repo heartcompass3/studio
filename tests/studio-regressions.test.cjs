@@ -46,6 +46,7 @@ dom.window.HTMLMediaElement.prototype.play = function () {
 };
 dom.window.HTMLCanvasElement.prototype.getContext = () => ({
   measureText: (text) => ({ width: text.length * 8 }),
+  clearRect() {},
 });
 document.fonts = { ready: Promise.resolve() };
 
@@ -75,7 +76,12 @@ function load(file) {
     if (name.endsWith(".css")) return {};
     if (name.includes("geminiService")) return gemini;
     // AI and encoders are external boundaries; these tests cover real UI state and IDB.
-    if (name.includes("mp4ExportService")) return {};
+    if (name.includes("mp4ExportService"))
+      return {
+        drawStudioSubtitle() {},
+        drawTextCallout() {},
+        drawHeadlineOverlay() {},
+      };
     if (name.includes("webmFixer"))
       return { fixWebmDuration: async (blob) => blob };
     if (!name.startsWith(".")) return require(name);
@@ -260,7 +266,42 @@ test("real app keeps sheets open, synchronizes script, replaces imported video a
       "כתובית שתשוחזר",
     ),
   );
+  await act(async () => {
+    fill(
+      document.querySelector('input[aria-label="כתוביות — מיקום אופקי"]'),
+      "28",
+    );
+    fill(
+      document.querySelector('input[aria-label="כתוביות — מיקום אנכי"]'),
+      "44",
+    );
+    fill(
+      document.querySelector('input[aria-label="כתוביות — גודל טקסט"]'),
+      "145",
+    );
+  });
+  await act(async () =>
+    document.querySelector('#editor-stage button[title="סגור חלונית"]').click(),
+  );
+  await click("מדבקות");
+  await click("🔥 שימו לב!");
+  await act(async () => {
+    const input = (label) =>
+      [...document.querySelectorAll("input[aria-label]")].find(
+        (item) => item.getAttribute("aria-label") === label,
+      );
+    fill(input("מדבקה: 🔥 שימו לב! — מיקום אופקי"), "70");
+    fill(input("מדבקה: 🔥 שימו לב! — מיקום אנכי"), "26");
+    fill(input("מדבקה: 🔥 שימו לב! — גודל טקסט"), "160");
+  });
   await flush(750);
+  const positioned = (await projectStore.readStudioProject()).editor;
+  assert.equal(positioned.captionPositionX, 28);
+  assert.equal(positioned.captionPositionY, 44);
+  assert.equal(positioned.captionFontScale, 1.45);
+  assert.equal(positioned.textCallouts[0].positionX, 70);
+  assert.equal(positioned.textCallouts[0].positionY, 26);
+  assert.equal(positioned.textCallouts[0].fontScale, 1.6);
   assert.equal(
     (await projectStore.readStudioProject()).editor.captions[0].text,
     "כתובית שתשוחזר",
@@ -271,6 +312,14 @@ test("real app keeps sheets open, synchronizes script, replaces imported video a
   await flush(50);
   await click("עריכה");
   await click("כתוביות");
+  assert.equal(
+    document.querySelector('input[aria-label="כתוביות — גודל טקסט"]').value,
+    "145",
+  );
+  assert.equal(
+    document.querySelector('input[aria-label="כתוביות — מיקום אופקי"]').value,
+    "28",
+  );
   assert.equal(
     document.querySelector("#editor-stage [role=dialog] input[type=text]")
       .value,

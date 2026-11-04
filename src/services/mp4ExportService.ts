@@ -1,3 +1,5 @@
+import { TextRenderSettings, textFontSize, safeTextCenter } from './textOverlay';
+import { mountExportSurface, waitForVideoData, seekExportVideo, pumpExportFrames, frameLuma, verifyExportedVideo } from './videoExportRuntime';
 import { fitMediaFrame } from './mediaGeometry';
 import { createMixBus, finishAudioSamples } from './audioMix';
 import { captionPages, pageAtWord } from './captionLayout';
@@ -25,6 +27,8 @@ export interface RenderOptions {
   musicVolume?: number;
   musicFitMode?: 'auto' | 'loop' | 'trim';
   captionPositionY?: number;
+  textSettings?: TextRenderSettings;
+  onFrameRendered?: (time: number, canvas: HTMLCanvasElement) => void;
   textCallouts?: TextCalloutItem[];
   onProgress: (percent: number, statusText: string) => void;
 }
@@ -33,12 +37,13 @@ export const drawHeadlineOverlay = (
   ctx: CanvasRenderingContext2D,
   headlineText: string,
   width: number,
-  height: number
+  height: number,
+  settings: TextRenderSettings = {}
 ) => {
   if (!headlineText || !headlineText.trim()) return;
 
   const isVertical = height > width;
-  const fontSize = Math.max(22, Math.floor(height * (isVertical ? 0.034 : 0.042)));
+  const fontSize = textFontSize(width, height, settings.headlineFontScale, 'headline');
   const lineHeight = fontSize * 1.3;
   const maxLineWidth = width * 0.88;
 
@@ -67,7 +72,7 @@ export const drawHeadlineOverlay = (
   const totalBlockHeight = lines.length * lineHeight;
   const paddingX = fontSize * 0.8;
   const paddingY = fontSize * 0.35;
-  const topY = isVertical ? height * 0.08 : height * 0.06;
+
 
   // Measure max width of lines for background card
   let maxW = 0;
@@ -78,8 +83,9 @@ export const drawHeadlineOverlay = (
 
   const cardW = Math.min(width * 0.94, maxW + paddingX * 2);
   const cardH = totalBlockHeight + paddingY * 2;
-  const cardX = (width - cardW) / 2;
-  const cardY = topY;
+  const center = safeTextCenter(width, height, cardW, cardH, settings.headlinePositionX ?? 50, settings.headlinePositionY ?? 10);
+  const cardX = center.x - cardW / 2;
+  const cardY = center.y - cardH / 2;
 
   // Background gradient pill / box
   ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
@@ -104,7 +110,7 @@ export const drawHeadlineOverlay = (
   lines.forEach((line, idx) => {
     const y = startLineY + idx * lineHeight;
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(line, width / 2, y);
+    ctx.fillText(line, center.x, y, maxLineWidth);
   });
 
   ctx.restore();
@@ -194,9 +200,8 @@ export const drawTextCallout = (
 ) => {
   if (!callout.text || !callout.text.trim()) return;
   const isVertical = height > width;
-  const fontSize = Math.max(20, Math.floor(height * (isVertical ? 0.034 : 0.044)));
-  const posX = width / 2;
-  const posY = height * ((callout.positionY ?? 32) / 100);
+  const fontSize = textFontSize(width, height, callout.fontScale, 'callout');
+
 
   ctx.save();
   ctx.font = `900 ${fontSize}px "Assistant", "Heebo", "Rubik", "Segoe UI", sans-serif`;
@@ -204,14 +209,20 @@ export const drawTextCallout = (
   ctx.textBaseline = 'middle';
   ctx.direction = 'rtl';
 
-  const metrics = ctx.measureText(callout.text);
-  const textWidth = Math.min(metrics.width, width * 0.86);
-  const paddingX = fontSize * 0.85;
-  const paddingY = fontSize * 0.36;
-  const boxW = textWidth + paddingX * 2;
-  const boxH = fontSize + paddingY * 2;
-  const boxX = posX - boxW / 2;
-  const boxY = posY - boxH / 2;
+  const paddingX = fontSize * .85, paddingY = fontSize * .36;
+  const maxTextWidth = Math.max(1, width * .94 - paddingX * 2);
+  const lines: string[] = []; let line = '';
+  for (const word of callout.text.trim().split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxTextWidth) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  const textWidth = Math.min(maxTextWidth, Math.max(...lines.map(value => ctx.measureText(value).width)));
+  const boxW = textWidth + paddingX * 2, lineHeight = fontSize * 1.25;
+  const boxH = lines.length * lineHeight + paddingY * 2;
+  const center = safeTextCenter(width, height, boxW, boxH, callout.positionX ?? 50, callout.positionY ?? 32);
+  const posX = center.x, posY = center.y;
+  const boxX = posX - boxW / 2, boxY = posY - boxH / 2;
 
   if (callout.style === 'fire-pill') {
     ctx.fillStyle = '#EF4444';
@@ -241,7 +252,7 @@ export const drawTextCallout = (
 
   ctx.shadowBlur = 0;
   ctx.fillStyle = callout.style === 'warning-box' ? '#000000' : '#FFFFFF';
-  ctx.fillText(callout.text, posX, posY, textWidth);
+  lines.forEach((line, index) => ctx.fillText(line, posX, posY + (index - (lines.length - 1) / 2) * lineHeight, maxTextWidth));
 
   ctx.restore();
 };
@@ -254,15 +265,17 @@ export const drawStudioSubtitle = (
   style: SubtitleStyle = 'karaoke-yellow',
   activeWordIndex: number = -1,
   karaokeEnabled: boolean = true,
-  captionPositionY: number = 74
+  captionPositionY: number = 74,
+  captionPositionX: number = 50,
+  captionFontScale: number = 1
 ) => {
   if (!text || !text.trim()) return;
 
   const isVertical = height > width;
   // Font size tailored to vertical short-form reels vs horizontal
-  const fontSize = Math.max(22, Math.floor(height * (isVertical ? 0.038 : 0.048)));
+  const fontSize = textFontSize(width, height, captionFontScale, 'caption');
   const lineHeight = fontSize * 1.32;
-  const maxLineWidth = width * (isVertical ? 0.88 : 0.82);
+  const maxLineWidth = Math.max(1, Math.min(width * (isVertical ? .88 : .82), width * .94 - fontSize * 1.1));
 
   ctx.save();
   ctx.font = `900 ${fontSize}px "Assistant", "Heebo", "Rubik", "Segoe UI", sans-serif`;
@@ -276,7 +289,9 @@ export const drawStudioSubtitle = (
 
   const totalBlockHeight = linesToRender.length * lineHeight;
   // Position strictly in the safe lower-third zone (82% for vertical, 85% for horizontal)
-  const baseY = height * (captionPositionY / 100);
+  const blockWidth = Math.max(0, ...linesToRender.map(line => Math.min(maxLineWidth, ctx.measureText(line.join(' ')).width))) + fontSize * 1.1;
+  const center = safeTextCenter(width, height, blockWidth, totalBlockHeight + fontSize * .4, captionPositionX, captionPositionY);
+  const baseY = center.y;
   const startY = baseY - (totalBlockHeight / 2) + (lineHeight / 2);
 
   let globalWordCounter = wordOffset;
@@ -288,7 +303,7 @@ export const drawStudioSubtitle = (
     const textWidth = Math.min(metrics.width, maxLineWidth);
     const paddingX = fontSize * 0.55;
     const paddingY = fontSize * 0.20;
-    const rectX = (width / 2) - (textWidth / 2) - paddingX;
+    const rectX = center.x - (textWidth / 2) - paddingX;
     const rectY = lineY - (fontSize / 2) - paddingY;
     const rectW = textWidth + paddingX * 2;
     const rectH = fontSize + paddingY * 2;
@@ -333,7 +348,7 @@ export const drawStudioSubtitle = (
     }
 
     if (!karaokeEnabled || activeWordIndex === -1) {
-      ctx.strokeText(fullLineStr, width / 2, lineY, maxLineWidth);
+      ctx.strokeText(fullLineStr, center.x, lineY, maxLineWidth);
       if (style === 'karaoke-yellow') {
         ctx.fillStyle = '#FFE600';
       } else if (style === 'karaoke-brand-cyan') {
@@ -343,10 +358,10 @@ export const drawStudioSubtitle = (
       } else {
         ctx.fillStyle = '#FFFFFF';
       }
-      ctx.fillText(fullLineStr, width / 2, lineY, maxLineWidth);
+      ctx.fillText(fullLineStr, center.x, lineY, maxLineWidth);
     } else {
       // Dynamic Word-by-Word rendering (RTL right-to-left layout)
-      let currentX = (width / 2) + (textWidth / 2);
+      let currentX = center.x + (textWidth / 2);
 
       lineWords.forEach((word) => {
         const isCurrentActiveWord = globalWordCounter === activeWordIndex;
@@ -468,7 +483,8 @@ export const renderStudioFrame = (
   karaokeEnabled: boolean,
   videoFitMode: 'cover' | 'contain' = 'cover',
   captionPositionY: number = 74,
-  textCallouts: TextCalloutItem[] = []
+  textCallouts: TextCalloutItem[] = [],
+  textSettings: TextRenderSettings = {}
 ) => {
   // Use the exact same centered cover/contain geometry as CSS object-fit in preview.
   ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);
@@ -491,7 +507,7 @@ export const renderStudioFrame = (
 
   // 3. Draw Top Headline Overlay if provided
   if (headlineText) {
-    drawHeadlineOverlay(ctx, headlineText, width, height);
+    drawHeadlineOverlay(ctx, headlineText, width, height, textSettings);
   }
 
   // 3.5. Draw Kinetic Pop-up Callouts if active
@@ -511,7 +527,7 @@ export const renderStudioFrame = (
     const words = activeCap.text.trim().split(/\s+/);
     const activeWordIndex = Math.min(words.length - 1, Math.floor((elapsed / capDuration) * words.length));
 
-    drawStudioSubtitle(ctx, activeCap.text, width, height, subtitleStyle, activeWordIndex, karaokeEnabled, captionPositionY);
+    drawStudioSubtitle(ctx, activeCap.text, width, height, subtitleStyle, activeWordIndex, karaokeEnabled, captionPositionY, textSettings.captionPositionX, textSettings.captionFontScale);
   }
 };
 
@@ -520,7 +536,7 @@ export const renderStudioFrame = (
  * Produces 100% genuine MP4 (H.264 High/Main + AAC 48kHz stereo) with Fast-Start headers.
  * Browser codec support is checked at runtime; the media-element engine is the fallback.
  */
-async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
+export async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   const {
     videoElement,
     videoBlob,
@@ -572,11 +588,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
 
   // Keep screen awake during export on mobile/laptops
   let wakeLock: any = null;
-  try {
-    if ('wakeLock' in navigator) {
-      wakeLock = await (navigator as any).wakeLock.request('screen');
-    }
-  } catch {}
+
 
   // Decode into PCM once. Preview and export use the same gain/limiter settings.
   let audioBuffer: AudioBuffer | null = null;
@@ -630,7 +642,8 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
+  // Prefer a synchronized 2D backing store for canvas -> VideoFrame on mobile GPUs.
+  const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true })!;
 
   const ambientCanvas = document.createElement('canvas');
   ambientCanvas.width = 120;
@@ -659,16 +672,17 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
   });
 
   let encoderError: Error | null = null;
+  let encodedPictureChunks = 0;
   const videoEncoder = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    output: (chunk, meta) => { muxer.addVideoChunk(chunk, meta); encodedPictureChunks++; },
     error: (e) => {
       console.error('VideoEncoder error:', e);
       encoderError = e;
     }
   });
 
-  const candidateCodecs = ['avc1.640028', 'avc1.4d002a', 'avc1.42001f'];
-  let chosenCodec = 'avc1.42001f';
+  const candidateCodecs = ['avc1.420028', 'avc1.4d0028', 'avc1.640028'];
+  let chosenCodec: string | null = null;
   for (const c of candidateCodecs) {
     try {
       const isSupp = await VideoEncoder.isConfigSupported({
@@ -685,12 +699,14 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     } catch (e) {}
   }
 
+  if (!chosenCodec) { videoEncoder.close(); throw new Error('אין מקודד H.264 מתאים לגודל הסרטון.'); }
   videoEncoder.configure({
     codec: chosenCodec,
     width,
     height,
     bitrate: 8_000_000,
-    framerate: fps
+    framerate: fps,
+    avc: { format: 'avc' }
   });
 
   // 5. Deterministic Sequential Video Frame Rendering
@@ -721,6 +737,13 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
       try { videoElement.currentTime = time; } catch (error) { finish(error instanceof Error ? error : new Error('הניווט לפריים נכשל')); }
     });
   };
+
+  const removePictureSurface = mountExportSurface(null, canvas, videoElement.parentElement || document.body);
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await (navigator as any).wakeLock.request('screen');
+    }
+  } catch {}
 
   try {
     videoElement.muted = true;
@@ -754,9 +777,11 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
         karaokeEnabled,
         options.videoFitMode || 'cover',
         captionPositionY,
-        textCallouts
+        textCallouts,
+        options.textSettings
       );
 
+      options.onFrameRendered?.(frameTime, canvas);
       const timestampUs = Math.round((i / fps) * 1_000_000);
       const videoFrame = new VideoFrame(canvas, {
         timestamp: timestampUs,
@@ -782,6 +807,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     onProgress(92, 'סוגר קידוד וידאו H.264...');
     await videoEncoder.flush();
     if (encoderError) throw encoderError;
+    if (!encodedPictureChunks) throw new Error('המקודד לא הפיק רצועת תמונה.');
 
     // 6. Encode Audio (AAC) into Muxer matching exact duration
     if (hasAudio && audioBuffer) {
@@ -843,6 +869,7 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
     videoElement.volume = originalVolume;
     videoElement.currentTime = originalCurrentTime;
     if (videoEncoder.state !== 'closed') videoEncoder.close();
+    removePictureSurface();
     wakeLock?.release().catch(() => {});
     canvas.width = 0;
     canvas.height = 0;
@@ -861,357 +888,172 @@ async function exportVideoWithWebCodecs(options: RenderOptions): Promise<Blob> {
 /**
  * MediaRecorder Fallback Engine (with fixWebmDuration header repair)
  */
-async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blob> {
-  const { 
-    videoElement: previewVideo,
-    captions, 
-    visualOverlays = [],
-    trimStart, 
-    trimEnd, 
-    brightness, 
-    contrast = 1, 
-    subtitleStyle, 
-    exportAspectRatio,
-    karaokeEnabled = true,
-    headlineText = '',
-    sourceVolume = 1,
-    musicBlob = null,
-    musicVolume = 0.2,
-    musicFitMode = 'auto',
-    captionPositionY = 74,
-    textCallouts = [],
-    onProgress 
-  } = options;
-
-  const videoElement = document.createElement('video');
-  videoElement.preload = 'auto'; videoElement.playsInline = true;
-  videoElement.crossOrigin = 'anonymous'; videoElement.src = previewVideo.currentSrc || previewVideo.src;
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('טעינת הסרטון לייצוא ארכה זמן רב מדי')), 15000);
-    videoElement.onloadeddata = () => { clearTimeout(timer); resolve(); };
-    videoElement.onerror = () => { clearTimeout(timer); reject(new Error('לא ניתן לטעון את הסרטון לייצוא')); };
-    videoElement.load();
-  });
-  const srcW = videoElement.videoWidth || 1080;
-  const srcH = videoElement.videoHeight || 1920;
-
-  let width = srcW;
-  let height = srcH;
-
-  if (exportAspectRatio === '16:9') {
-    width = 1920;
-    height = 1080;
-  } else if (exportAspectRatio === '9:16') {
-    width = 1080;
-    height = 1920;
-  }
-
-  const fps = 30;
-  const maxVideoDuration = (Number.isFinite(videoElement.duration) && videoElement.duration > 0) ? videoElement.duration : Infinity;
-  const safeTrimEnd = Math.min(trimEnd, maxVideoDuration);
-  const targetEndTime = Math.max(trimStart + 0.3, safeTrimEnd);
-  const duration = Math.max(0.3, targetEndTime - trimStart);
-
-  return new Promise<Blob>(async (resolve, reject) => {
-    let isCompleted = false;
-    let hasResolved = false;
-    let animationId: number | null = null;
-    let watchdogTimer: any = null;
-    let exportAudioContext: AudioContext | null = null;
-    let exportMusicElement: HTMLAudioElement | null = null;
-    let exportMusicUrl: string | null = null;
-    const originalMuted = videoElement.muted;
-    const originalVolume = videoElement.volume;
-
-    try {
-      onProgress(5, 'מאתחל מנוע רינדור מהיר...');
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
-
-      const ambientCanvas = document.createElement('canvas');
-      ambientCanvas.width = 120;
-      ambientCanvas.height = Math.round(120 * (height / width));
-      const ambientCtx = ambientCanvas.getContext('2d', { alpha: false })!;
-
-      const preloadedImages = new Map<string, HTMLImageElement>();
-      if (visualOverlays && visualOverlays.length > 0) {
-        await Promise.all(
-          visualOverlays.map(item => {
-            return new Promise<void>((res) => {
-              if (!item.imageUrl) return res();
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.onload = () => {
-                preloadedImages.set(item.id, img);
-                res();
-              };
-              img.onerror = () => res();
-              img.src = item.imageUrl;
-            });
-          })
-        );
-      }
-
-      const stream = canvas.captureStream(fps);
-
-      exportAudioContext = new AudioContext({ sampleRate: 48000 });
-      const mixDestination = exportAudioContext.createMediaStreamDestination();
-      const bus = createMixBus(exportAudioContext, mixDestination);
-      bus.source.gain.value = Math.max(0, Math.min(1, sourceVolume));
-      bus.music.gain.value = Math.max(0, Math.min(1, musicVolume));
-      exportAudioContext.createMediaElementSource(videoElement).connect(bus.source);
-      if (musicBlob) {
-        exportMusicUrl = URL.createObjectURL(musicBlob);
-        exportMusicElement = new Audio(); exportMusicElement.preload = 'auto';
-        await new Promise<void>((resolveMusic, rejectMusic) => {
-          const timer = setTimeout(() => rejectMusic(new Error('טעינת המוזיקה ארכה זמן רב מדי')), 15000);
-          exportMusicElement!.onloadedmetadata = () => { clearTimeout(timer); resolveMusic(); };
-          exportMusicElement!.onerror = () => { clearTimeout(timer); rejectMusic(new Error('לא ניתן לקרוא את המוזיקה')); };
-          exportMusicElement!.src = exportMusicUrl!;
-        });
-        exportMusicElement.loop = musicFitMode === 'loop' || (musicFitMode === 'auto' && exportMusicElement.duration < duration);
-        exportAudioContext.createMediaElementSource(exportMusicElement).connect(bus.music);
-      }
-      stream.addTrack(mixDestination.stream.getAudioTracks()[0]);
-      await exportAudioContext.resume();
-
-      const candidates = [
-        'video/mp4;codecs=avc1.640028,mp4a.40.2',
-        'video/mp4;codecs=avc1',
-        'video/mp4',
-        'video/webm;codecs=h264,opus',
-        'video/webm;codecs=vp9,opus',
-        'video/webm'
-      ];
-
-      let selectedMimeType = 'video/webm';
-      for (const mime of candidates) {
-        if (MediaRecorder.isTypeSupported(mime)) {
-          selectedMimeType = mime;
-          break;
-        }
-      }
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType: selectedMimeType,
-        videoBitsPerSecond: 8_000_000,
-        audioBitsPerSecond: 192_000
+export async function exportVideoWithMediaRecorder(options: RenderOptions): Promise<Blob> {
+  const { videoElement: preview, trimStart, trimEnd, onProgress } = options;
+  const video = document.createElement('video');
+  video.preload = 'auto'; video.playsInline = true; video.muted = true;
+  video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', '');
+  video.crossOrigin = 'anonymous';
+  const canvas = document.createElement('canvas');
+  canvas.width = options.exportAspectRatio === '16:9' ? 1920 : options.exportAspectRatio === '9:16' ? 1080 : preview.videoWidth;
+  canvas.height = options.exportAspectRatio === '16:9' ? 1080 : options.exportAspectRatio === '9:16' ? 1920 : preview.videoHeight;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx || !canvas.width || !canvas.height) throw new Error('לא ניתן להכין תמונה לייצוא. טען את הסרטון ונסה שוב.');
+  const removeSurface = mountExportSurface(video, canvas, preview.parentElement || document.body);
+  let stream: MediaStream | null = null, audioContext: AudioContext | null = null;
+  let recorder: MediaRecorder | null = null, music: HTMLAudioElement | null = null;
+  let musicUrl: string | null = null, stopFrames: (() => void) | null = null;
+  let wakeLock: any = null;
+  try {
+    onProgress(2, 'טוען פריים ראשון לייצוא תואם מובייל…');
+    const loaded = waitForVideoData(video);
+    video.src = preview.currentSrc || preview.src; video.load();
+    await loaded;
+    const end = Math.min(trimEnd, Number.isFinite(video.duration) ? video.duration : trimEnd);
+    const duration = end - trimStart;
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('טווח החיתוך ריק או לא תקין.');
+    await seekExportVideo(video, trimStart);
+    const images = new Map<string, HTMLImageElement>();
+    await Promise.all((options.visualOverlays || []).map(overlay => new Promise<void>(resolve => {
+      const image = new Image(); image.crossOrigin = 'anonymous';
+      image.onload = () => { images.set(overlay.id, image); resolve(); }; image.onerror = () => resolve(); image.src = overlay.imageUrl;
+    })));
+    let painted = 0;
+    const paint = (time: number) => {
+      if (video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) return;
+      renderStudioFrame(ctx, video, canvas, ctx, time, canvas.width, canvas.height,
+        video.videoWidth, video.videoHeight, video.videoHeight > video.videoWidth, canvas.height > canvas.width,
+        options.brightness, options.contrast ?? 1, options.visualOverlays || [], images, options.headlineText || '',
+        options.captions, options.subtitleStyle, options.karaokeEnabled ?? true, options.videoFitMode || 'cover',
+        options.captionPositionY ?? 74, options.textCallouts || [], options.textSettings);
+      options.onFrameRendered?.(time, canvas);
+      painted++;
+      const track = stream?.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
+      if (typeof track?.requestFrame === 'function') track.requestFrame();
+    };
+    // The capture track must see a real image before the recorder is started.
+    paint(trimStart);
+    if (!painted) throw new Error('אין תמונה מפוענחת לייצוא.');
+    stream = canvas.captureStream(30);
+    const pictureTrack = stream.getVideoTracks()[0];
+    if (!pictureTrack || pictureTrack.readyState !== 'live') throw new Error('הדפדפן לא יצר רצועת וידאו.');
+    audioContext = new AudioContext({ sampleRate: 48000 });
+    const destination = audioContext.createMediaStreamDestination();
+    const bus = createMixBus(audioContext, destination);
+    bus.source.gain.value = Math.max(0, Math.min(1, options.sourceVolume ?? 1));
+    bus.music.gain.value = Math.max(0, Math.min(1, options.musicVolume ?? .2));
+    audioContext.createMediaElementSource(video).connect(bus.source);
+    if (options.musicBlob) {
+      musicUrl = URL.createObjectURL(options.musicBlob); music = new Audio(); music.preload = 'auto';
+      const musicElement = music;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('טעינת המוזיקה ארכה זמן רב מדי.')), 15000);
+        musicElement.onloadedmetadata = () => { clearTimeout(timer); resolve(); };
+        musicElement.onerror = () => { clearTimeout(timer); reject(new Error('לא ניתן לקרוא את המוזיקה.')); };
+        musicElement.src = musicUrl!;
       });
-
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
-      const finishExport = () => {
-        if (isCompleted) return;
-        isCompleted = true;
-
-        videoElement.removeEventListener('ended', finishExport);
-        videoElement.removeEventListener('timeupdate', onTimeUpdate);
-        videoElement.removeEventListener('pause', onPauseCheck);
-        videoElement.removeEventListener('error', finishExport);
-
-        if (watchdogTimer) clearTimeout(watchdogTimer);
-        if (animationId) cancelAnimationFrame(animationId);
-
-        try {
-          videoElement.pause();
-        } catch (e) {}
-
-        try {
-          exportMusicElement?.pause();
-        } catch (e) {}
-        if (exportMusicUrl) {
-          URL.revokeObjectURL(exportMusicUrl);
-          exportMusicUrl = null;
-        }
-
-        videoElement.muted = originalMuted;
-        videoElement.volume = originalVolume;
-
-        onProgress(99, 'סוגר קובץ וידאו ומייצר MP4...');
-
-        if (recorder.state !== 'inactive') {
-          try {
-            recorder.stop();
-          } catch (e) {}
-        }
-
-        setTimeout(async () => {
-          if (!hasResolved && chunks.length > 0) {
-            hasResolved = true;
-            onProgress(100, 'הרינדור הושלם בהצלחה!');
-            const rawBlob = new Blob(chunks, {
-              type: selectedMimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
-            });
-
-            if (selectedMimeType.includes('webm')) {
-              try {
-                fixWebmDuration(rawBlob, duration * 1000, (fixedBlob: Blob) => {
-                  resolve(fixedBlob);
-                });
-                return;
-              } catch (e) {}
-            }
-            resolve(rawBlob);
-          }
-        }, 500);
-      };
-
-      const onTimeUpdate = () => {
-        if (videoElement.currentTime >= targetEndTime - 0.02 || (videoElement.currentTime >= targetEndTime - 0.5 && videoElement.ended)) {
-          finishExport();
-        }
-      };
-
-      const onPauseCheck = () => {
-        if (videoElement.currentTime >= targetEndTime - 0.2 || videoElement.currentTime > trimStart + 0.5) {
-          if (videoElement.currentTime >= targetEndTime - 0.15 || videoElement.ended) {
-            finishExport();
-          }
-        }
-      };
-
-      videoElement.addEventListener('ended', finishExport);
-      videoElement.addEventListener('timeupdate', onTimeUpdate);
-      videoElement.addEventListener('pause', onPauseCheck);
-      videoElement.addEventListener('error', finishExport);
-
-      const maxAllowedSeconds = Math.max(30, duration * 2.5 + 20);
-      watchdogTimer = setTimeout(() => {
-        finishExport();
-      }, maxAllowedSeconds * 1000);
-
-      recorder.onstop = () => {
-        if (exportAudioContext?.state !== 'closed') void exportAudioContext?.close();
-        videoElement.removeAttribute('src'); videoElement.load();
-        stream.getTracks().forEach(track => track.stop());
-        if (hasResolved) return;
-        hasResolved = true;
-        onProgress(100, 'הרינדור הושלם בהצלחה!');
-        const rawBlob = new Blob(chunks, {
-          type: selectedMimeType.includes('mp4') ? 'video/mp4' : 'video/webm'
-        });
-
-        if (selectedMimeType.includes('webm')) {
-          try {
-            fixWebmDuration(rawBlob, duration * 1000, (fixedBlob: Blob) => {
-              resolve(fixedBlob);
-            });
-            return;
-          } catch (e) {}
-        }
-        resolve(rawBlob);
-      };
-
-      videoElement.muted = false; videoElement.volume = 1;
-      if (Math.abs(videoElement.currentTime - trimStart) > 0.001) {
-        await new Promise<void>((resolveSeek, rejectSeek) => {
-          const timer = setTimeout(() => { videoElement.removeEventListener('seeked', onSeeked); rejectSeek(new Error('הניווט לתחילת הקטע נכשל')); }, 10000);
-          const onSeeked = () => { clearTimeout(timer); resolveSeek(); };
-          videoElement.addEventListener('seeked', onSeeked, { once: true });
-          videoElement.currentTime = trimStart;
-        });
-      }
-      const now = exportAudioContext!.currentTime;
-      const voice = Math.max(0, Math.min(1, sourceVolume));
-      bus.source.gain.setValueAtTime(0, now);
-      bus.source.gain.linearRampToValueAtTime(voice, now + 0.005);
-      bus.source.gain.setValueAtTime(voice, now + Math.max(0.005, duration - 0.005));
-      bus.source.gain.linearRampToValueAtTime(0, now + duration);
-      const musicFade = Math.min(0.8, duration / 3);
-      bus.music.gain.setValueAtTime(Math.max(0, Math.min(1, musicVolume)), now + duration - musicFade);
-      bus.music.gain.linearRampToValueAtTime(0, now + duration);
-
-      recorder.start(250);
-      const playbackPromises: Promise<void>[] = [videoElement.play()];
-      if (exportMusicElement) {
-        exportMusicElement.currentTime = 0;
-        playbackPromises.push(exportMusicElement.play());
-      }
-      await Promise.all(playbackPromises);
-
-      // The recorder is running before playback so the first audio samples are retained.
-      const isSourceVertical = srcH > srcW;
-      const isTargetVertical = height > width;
-
-      const renderLoop = () => {
-        if (isCompleted) return;
-        const currentPos = videoElement.currentTime;
-
-        if (currentPos >= targetEndTime - 0.03 || videoElement.ended) {
-          finishExport();
-          return;
-        }
-
-        const progressPct = Math.min(99, Math.round(((currentPos - trimStart) / duration) * 100));
-        onProgress(progressPct, `מעבד וידאו וכתוביות (${isTargetVertical ? '9:16 Reels' : '16:9 YouTube'}): ${progressPct}%`);
-
-        renderStudioFrame(
-          ctx,
-          videoElement,
-          ambientCanvas,
-          ambientCtx,
-          currentPos,
-          width,
-          height,
-          srcW,
-          srcH,
-          isSourceVertical,
-          isTargetVertical,
-          brightness,
-          contrast,
-          visualOverlays,
-          preloadedImages,
-          headlineText,
-          captions,
-          subtitleStyle,
-          karaokeEnabled,
-          options.videoFitMode || 'cover',
-        captionPositionY,
-        textCallouts
-        );
-
-        animationId = requestAnimationFrame(renderLoop);
-      };
-
-      animationId = requestAnimationFrame(renderLoop);
-
-    } catch (err) {
-      console.error('MediaRecorder Export Error:', err);
-      try {
-        exportMusicElement?.pause();
-      } catch (e) {}
-      if (exportMusicUrl) URL.revokeObjectURL(exportMusicUrl);
-      if (exportAudioContext && exportAudioContext.state !== 'closed') {
-        exportAudioContext.close().catch(() => undefined);
-      }
-      videoElement.muted = originalMuted;
-      videoElement.volume = originalVolume;
-      reject(err);
+      music.loop = options.musicFitMode === 'loop' || (options.musicFitMode !== 'trim' && music.duration < duration);
+      audioContext.createMediaElementSource(music).connect(bus.music);
     }
-  });
+    const audioTrack = destination.stream.getAudioTracks()[0]; if (audioTrack) stream.addTrack(audioTrack);
+    await audioContext.resume();
+    try { if ('wakeLock' in navigator) wakeLock = await (navigator as any).wakeLock.request('screen'); } catch {}
+    const mime = ['video/mp4;codecs=avc1.42E028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
+      .find(type => MediaRecorder.isTypeSupported(type));
+    if (!mime) throw new Error('הדפדפן אינו תומך בייצוא וידאו.');
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000, audioBitsPerSecond: 192000 });
+    const activeRecorder = recorder;
+    const chunks: Blob[] = [];
+    await new Promise<void>((resolve, reject) => {
+      let finished = false, ending = false;
+      let lastTime = trimStart, lastAdvance = performance.now();
+      const cleanup = () => {
+        clearInterval(watchdog); video.removeEventListener('ended', ended); video.removeEventListener('error', failed);
+        document.removeEventListener('visibilitychange', visibility); stopFrames?.(); stopFrames = null;
+      };
+      const finish = (error?: Error) => {
+        if (finished) return; finished = true; cleanup(); error ? reject(error) : resolve();
+      };
+      const stop = () => {
+        if (ending) return; ending = true;
+        if (painted < 2) { finish(new Error('לא התקבלו פריימים בזמן הייצוא. נסה שוב כשהדף פתוח.')); return; }
+        video.pause(); music?.pause(); stopFrames?.(); stopFrames = null;
+        if (activeRecorder.state !== 'inactive') activeRecorder.stop();
+      };
+      const ended = () => stop();
+      const failed = () => finish(new Error('קריאת הווידאו נכשלה בזמן הייצוא.'));
+      const visibility = () => { if (document.hidden) finish(new Error('הייצוא נעצר כשהדף הוסתר. השאר את הסטודיו פתוח ונסה שוב.')); };
+      const watchdog = setInterval(() => {
+        if (finished) return;
+        if (video.currentTime > lastTime + .01) { lastTime = video.currentTime; lastAdvance = performance.now(); }
+        if (performance.now() - lastAdvance > 15000) finish(new Error('הווידאו הפסיק להתקדם בזמן הייצוא. נסה שוב.'));
+        else if (video.ended || video.currentTime >= end) stop();
+      }, 250);
+      activeRecorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      activeRecorder.onerror = () => finish(new Error('קידוד הווידאו נכשל בדפדפן.'));
+      activeRecorder.onstop = () => finish(chunks.length ? undefined : new Error('קובץ הייצוא ריק.'));
+      video.addEventListener('ended', ended); video.addEventListener('error', failed);
+      document.addEventListener('visibilitychange', visibility);
+      stopFrames = pumpExportFrames(video, time => {
+        if (finished || ending) return;
+        try {
+          paint(Math.min(time, end));
+          onProgress(Math.min(98, Math.round((time - trimStart) / duration * 98)), 'מייצא וידאו — השאר את הדף פתוח…');
+          if (time >= end) stop();
+        } catch (error) { finish(error instanceof Error ? error : new Error('ציור הפריים נכשל.')); }
+      });
+      const now = audioContext!.currentTime, voice = Math.max(0, Math.min(1, options.sourceVolume ?? 1));
+      bus.source.gain.setValueAtTime(0, now); bus.source.gain.linearRampToValueAtTime(voice, now + .005);
+      bus.source.gain.setValueAtTime(voice, now + Math.max(.005, duration - .005)); bus.source.gain.linearRampToValueAtTime(0, now + duration);
+      const musicFade = Math.min(.8, duration / 3);
+      bus.music.gain.setValueAtTime(Math.max(0, Math.min(1, options.musicVolume ?? .2)), now + duration - musicFade);
+      bus.music.gain.linearRampToValueAtTime(0, now + duration);
+      activeRecorder.start(250); paint(trimStart);
+      // Route speech only through the export bus, separately from the preview audio graph.
+      video.muted = false;
+      Promise.all([video.play(), ...(music ? [music.play()] : [])]).catch(error => finish(error));
+    });
+    const blob = new Blob(chunks, { type: activeRecorder.mimeType || mime });
+    onProgress(99, 'סוגר קובץ וידאו…');
+    return mime.includes('webm') ? await new Promise<Blob>(resolve => fixWebmDuration(blob, duration * 1000, resolve)) : blob;
+  } finally {
+    stopFrames?.();
+    if (recorder?.state !== 'inactive') { try { recorder?.stop(); } catch {} }
+    video.pause(); music?.pause(); stream?.getTracks().forEach(track => track.stop());
+    if (audioContext && audioContext.state !== 'closed') await audioContext.close();
+    if (musicUrl) URL.revokeObjectURL(musicUrl);
+    video.removeAttribute('src'); video.load(); removeSurface();
+    wakeLock?.release().catch(() => {});
+  }
 }
 
 /**
  * Studio MP4 Video Exporter
  * Uses high-performance deterministic WebCodecs engine (VideoEncoder + AudioEncoder) with pure PCM audio extraction
- * for 100% click-free, pop-free, crystal clear MP4 export. Falls back to smooth MediaRecorder if needed.
+ * with explicit fallback when the browser cannot encode H.264/AAC.
  */
 export const exportVideoToMP4 = async (options: RenderOptions): Promise<Blob> => {
-  const isWebCodecsSupported = typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined'; // Prioritize fast, smooth real-time MediaRecorder export (30s-60s)
-  if (isWebCodecsSupported) {
-    try {
-      return await exportVideoWithWebCodecs(options);
-    } catch (err) {
-      console.warn('WebCodecs export failed, falling back to MediaRecorder:', err);
-    }
+  await document.fonts.ready;
+  const midpoint = options.trimStart + (options.trimEnd - options.trimStart) / 2;
+  const host = options.videoElement.parentElement || document.body;
+  const run = async (engine: (options: RenderOptions) => Promise<Blob>) => {
+    let proof: { time: number; luma: number } | undefined;
+    const blob = await engine({ ...options, onFrameRendered: (time, canvas) => {
+      if (!proof && time >= midpoint) {
+        const luma = frameLuma(canvas);
+        if (luma !== null) proof = { time: time - options.trimStart, luma };
+      }
+    } });
+    options.onProgress(99, 'בודק שהתוצר כולל תמונה ניתנת לניגון…');
+    await verifyExportedVideo(blob, host, proof);
+    options.onProgress(100, 'הייצוא הושלם');
+    return blob;
+  };
+  if (typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined') {
+    try { return await run(exportVideoWithWebCodecs); }
+    catch (error) { console.warn('הקידוד המהיר נכשל; מנסה ייצוא בזמן אמת:', error); }
   }
-  return await exportVideoWithMediaRecorder(options);
+  return await run(exportVideoWithMediaRecorder);
 };
 
 export const exportCaptionsToSRT = (captions: CaptionItem[], from = 0, to = Infinity): string => {

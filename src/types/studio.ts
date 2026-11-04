@@ -107,6 +107,8 @@ export interface TextCalloutItem {
   endTime: number;
   style: 'viral-badge' | 'neon-glow' | 'warning-box' | 'fire-pill';
   positionY?: number;
+  positionX?: number;
+  fontScale?: number;
 }
 
 export interface StudioTake {

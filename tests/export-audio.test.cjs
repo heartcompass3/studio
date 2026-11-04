@@ -54,11 +54,16 @@ test("export submits continuous PCM timestamps and an exact final block without 
     startRendering = async () => buffer();
   }
   class Encoder {
+    constructor(callbacks) {
+      this.callbacks = callbacks;
+    }
     state = "configured";
     encodeQueueSize = 0;
     static isConfigSupported = async () => ({ supported: true });
     configure() {}
-    encode() {}
+    encode() {
+      this.callbacks.output({}, {});
+    }
     async flush() {}
     close() {
       this.state = "closed";
@@ -138,24 +143,27 @@ test("export submits continuous PCM timestamps and an exact final block without 
       },
     }).outputText;
     const requireLocal = (dep) =>
-      dep === "mp4-muxer"
-        ? {
-            Muxer: class {
-              constructor() {
-                this.target = { buffer: new ArrayBuffer(1) };
-              }
-              finalize() {}
-            },
-            ArrayBufferTarget: class {},
-          }
-        : dep === "fix-webm-duration"
-          ? () => {}
-          : load(dep + ".ts");
+      dep === "./videoExportRuntime"
+        ? { mountExportSurface: () => () => {} }
+        : dep === "mp4-muxer"
+          ? {
+              Muxer: class {
+                constructor() {
+                  this.target = { buffer: new ArrayBuffer(1) };
+                }
+                finalize() {}
+                addVideoChunk() {}
+              },
+              ArrayBufferTarget: class {},
+            }
+          : dep === "fix-webm-duration"
+            ? () => {}
+            : load(dep + ".ts");
     vm.runInNewContext(code, { ...globals, exports, require: requireLocal });
     return exports;
   }
-  const { exportVideoToMP4 } = load("mp4ExportService.ts");
-  const result = await exportVideoToMP4({
+  const { exportVideoWithWebCodecs } = load("mp4ExportService.ts");
+  const result = await exportVideoWithWebCodecs({
     videoElement: new Video(),
     videoBlob: new Blob(["fixture"]),
     captions: [],

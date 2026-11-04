@@ -1,67 +1,137 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CaptionItem, SubtitleStyle } from '../../types/studio';
-import { captionPages, pageAtWord } from '../../services/captionLayout';
+import React, { useLayoutEffect, useRef } from "react";
+import type {
+  CaptionItem,
+  SubtitleStyle,
+  TextCalloutItem,
+} from "../../types/studio";
+import {
+  drawStudioSubtitle,
+  drawTextCallout,
+  drawHeadlineOverlay,
+} from "../../services/mp4ExportService";
+import type { TextRenderSettings } from "../../services/textOverlay";
 
-export function CaptionPreview({ 
-  caption, 
-  time, 
-  style, 
-  karaoke, 
-  positionY = 74 
+/** Preview uses the export painter so placement, font size and wrapping match the file. */
+function OverlayCanvas({
+  label,
+  draw,
 }: {
-  caption: CaptionItem; 
-  time: number; 
-  style: SubtitleStyle; 
-  karaoke: boolean; 
-  positionY?: number;
+  label: string;
+  draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }) {
-  const box = useRef<HTMLSpanElement>(null);
-  const [metrics, setMetrics] = useState({ width: 240, font: '900 18px Arial', size: 18 });
+  const ref = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
-    const element = box.current;
-    if (!element) return;
-    let alive = true;
-    const measure = () => {
-      if (!alive) return;
-      const css = getComputedStyle(element);
-      const next = {
-        width: Math.max(1, element.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0) - 4),
-        font: `${css.fontWeight || '900'} ${css.fontSize || '18px'} ${css.fontFamily || 'Arial'}`,
-        size: parseFloat(css.fontSize) || 18,
-      };
-      setMetrics(old => old.width === next.width && old.font === next.font ? old : next);
+    const canvas = ref.current,
+      stage = canvas?.parentElement;
+    if (!canvas || !stage) return;
+    let disposed = false;
+    const paint = () => {
+      if (disposed) return;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(stage.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.round(stage.clientHeight * ratio));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      draw(ctx, canvas.width, canvas.height);
     };
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    window.addEventListener('resize', measure);
-    void document.fonts.ready.then(measure);
-    measure();
-    return () => { alive = false; observer.disconnect(); window.removeEventListener('resize', measure); };
-  }, []);
-  const context = useMemo(() => document.createElement('canvas').getContext('2d')!, []);
-  context.font = metrics.font;
+    const observer = new ResizeObserver(paint);
+    observer.observe(stage);
+    void document.fonts.ready.then(paint);
+    paint();
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
+  }, [draw]);
+  return (
+    <canvas
+      ref={ref}
+      role="img"
+      aria-label={label}
+      className="absolute inset-0 w-full h-full pointer-events-none z-20"
+    />
+  );
+}
+export function CaptionPreview({
+  caption,
+  time,
+  style,
+  karaoke,
+  positionY = 74,
+  positionX = 50,
+  fontScale = 1,
+}: {
+  caption: CaptionItem;
+  time: number;
+  style: SubtitleStyle;
+  karaoke: boolean;
+  positionY?: number;
+  positionX?: number;
+  fontScale?: number;
+}) {
   const words = caption.text.trim().split(/\s+/).filter(Boolean);
-  const active = Math.max(0, Math.min(words.length - 1, Math.floor(
-    (time - caption.start) / Math.max(.001, caption.end - caption.start) * words.length,
-  )));
-  const page = pageAtWord(captionPages(caption.text, text => context.measureText(text).width, metrics.width), active);
-  const accent = style === 'karaoke-brand-cyan' ? '#38BDF8' : style === 'karaoke-brand-coral' ? '#FB7185' : '#FFE600';
-  let index = page?.first || 0;
-  return <div 
-    className="absolute left-0 right-0 px-3 sm:px-4 text-center pointer-events-none z-20 flex justify-center transition-all duration-150"
-    style={{ top: `${positionY}%`, transform: 'translateY(-50%)' }}
-  >
-    <span ref={box} data-caption-page className="inline-block px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl font-black text-xs sm:text-base md:text-lg leading-snug"
-      style={{ width: '92%', background: style === 'karaoke-clean-floating' ? 'transparent' : 'rgba(0,0,0,.85)', color: 'white', textShadow: '0 2px 8px black' }}>
-      {page?.lines.map((line, lineIndex) => <span key={lineIndex} data-caption-line dir="rtl" className="block whitespace-nowrap">
-        {line.map((word, localIndex) => {
-          const wordIndex = index++;
-          const scale = Math.min(1, metrics.width / Math.max(1, context.measureText(word).width));
-          return <span key={wordIndex} style={{ color: karaoke && wordIndex === active ? accent : 'white', fontSize: scale < 1 ? metrics.size * scale : undefined }}>
-            {localIndex > 0 ? ' ' : ''}{word}
-          </span>;
-        })}
-      </span>)}
-    </span>
-  </div>;
+  const word = Math.max(
+    0,
+    Math.min(
+      words.length - 1,
+      Math.floor(
+        ((time - caption.start) /
+          Math.max(0.001, caption.end - caption.start)) *
+          words.length,
+      ),
+    ),
+  );
+  return (
+    <OverlayCanvas
+      label={caption.text}
+      draw={(ctx, width, height) =>
+        drawStudioSubtitle(
+          ctx,
+          caption.text,
+          width,
+          height,
+          style,
+          word,
+          karaoke,
+          positionY,
+          positionX,
+          fontScale,
+        )
+      }
+    />
+  );
+}
+export function CalloutPreview({
+  callouts,
+  time,
+}: {
+  callouts: TextCalloutItem[];
+  time: number;
+}) {
+  const active = callouts.filter(
+    (item) => time >= item.startTime && time < item.endTime,
+  );
+  return (
+    <OverlayCanvas
+      label={active.map((item) => item.text).join(" · ")}
+      draw={(ctx, w, h) =>
+        active.forEach((item) => drawTextCallout(ctx, item, w, h))
+      }
+    />
+  );
+}
+export function HeadlinePreview({
+  text,
+  settings,
+}: {
+  text: string;
+  settings: TextRenderSettings;
+}) {
+  return (
+    <OverlayCanvas
+      label={text}
+      draw={(ctx, w, h) => drawHeadlineOverlay(ctx, text, w, h, settings)}
+    />
+  );
 }

@@ -1,7 +1,8 @@
 import { CameraStage } from '../Studio/CameraStage';
 import { EditorDraft } from '../../services/studioProject';
 import { createMixBus } from '../../services/audioMix';
-import { CaptionPreview } from './CaptionPreview';
+import { CaptionPreview, CalloutPreview, HeadlinePreview } from './CaptionPreview';
+import { OverlayControls } from './OverlayControls';
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowRight, Download, Save, Scissors, Subtitles, 
@@ -64,10 +65,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   const [isUiHidden, setIsUiHidden] = useState(false);
   const [activeEditorDrawer, setActiveEditorDrawer] = useState<"none" | "captions" | "style" | "music" | "trim" | "callouts">("none");
   const [captionPositionY, setCaptionPositionY] = useState(initialDraft?.captionPositionY ?? (74));
+  const [captionPositionX, setCaptionPositionX] = useState(initialDraft?.captionPositionX ?? 50);
+  const [captionFontScale, setCaptionFontScale] = useState(initialDraft?.captionFontScale ?? 1);
+  const [headlinePositionX, setHeadlinePositionX] = useState(initialDraft?.headlinePositionX ?? 50);
+  const [headlinePositionY, setHeadlinePositionY] = useState(initialDraft?.headlinePositionY ?? 10);
+  const [headlineFontScale, setHeadlineFontScale] = useState(initialDraft?.headlineFontScale ?? 1);
   const [textCallouts, setTextCallouts] = useState<TextCalloutItem[]>(initialDraft?.textCallouts ?? ([]));
   const [newCalloutText, setNewCalloutText] = useState('');
   const [newCalloutStyle, setNewCalloutStyle] = useState<'viral-badge' | 'neon-glow' | 'warning-box' | 'fire-pill'>('fire-pill');
   const [newCalloutPosY, setNewCalloutPosY] = useState(30);
+  const [newCalloutPosX, setNewCalloutPosX] = useState(50);
+  const [newCalloutFontScale, setNewCalloutFontScale] = useState(1);
 
   // Trimming State
   const [trimStart, setTrimStart] = useState(initialDraft?.trimStart ?? (0));
@@ -115,9 +123,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
   useEffect(() => { if (previousCover.current !== coverTitle) { setHeadlineText(coverTitle); previousCover.current = coverTitle; } }, [coverTitle]);
   useEffect(() => {
     onDraftChange?.({ captions, trimStart, trimEnd, hasCustomTrim, exportAspectRatio, videoFitMode,
-      captionPositionY, subtitleStyle, karaokeEnabled, headlineText, textCallouts, visualOverlays,
+      captionPositionY, captionPositionX, captionFontScale, headlinePositionX, headlinePositionY, headlineFontScale, subtitleStyle, karaokeEnabled, headlineText, textCallouts, visualOverlays,
       brightness, contrast, sourceVolume, musicFile, musicVolume, musicFitMode });
-  }, [captions, trimStart, trimEnd, hasCustomTrim, exportAspectRatio, videoFitMode, captionPositionY,
+  }, [captions, trimStart, trimEnd, hasCustomTrim, exportAspectRatio, videoFitMode, captionPositionY, captionPositionX, captionFontScale, headlinePositionX, headlinePositionY, headlineFontScale,
     subtitleStyle, karaokeEnabled, headlineText, textCallouts, visualOverlays, brightness, contrast,
     sourceVolume, musicFile, musicVolume, musicFitMode, onDraftChange]);
 
@@ -629,6 +637,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         musicVolume,
         musicFitMode,
         captionPositionY,
+        textSettings: { captionPositionX, captionFontScale, headlinePositionX, headlinePositionY, headlineFontScale },
         textCallouts,
         onProgress: (pct, msg) => {
           setExportProgress(pct);
@@ -850,13 +859,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         })()}
 
         {/* Top Headline Hook Bar Overlay */}
-        {headlineText && !isExporting && (
-          <div className="absolute top-4 sm:top-6 left-0 right-0 px-4 text-center pointer-events-none z-20 animate-in slide-in-from-top-2">
-            <span className="inline-block max-w-[94%] px-3.5 py-1.5 rounded-2xl bg-slate-900/90 text-white font-black text-xs sm:text-sm md:text-base border border-indigo-500/60 shadow-2xl backdrop-blur-md">
-              {headlineText}
-            </span>
-          </div>
-        )}
+        {headlineText && !isExporting && <HeadlinePreview text={headlineText} settings={{ headlinePositionX, headlinePositionY, headlineFontScale }} />}
 
         {/* Social Safe Zones Overlay (TikTok / Reels / Shorts HUD) */}
         {exportAspectRatio === '9:16' && showSafeZones && !isExporting && (
@@ -899,27 +902,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
           </div>
         )}
 
-        {/* Pop-up Kinetic Callouts Preview */}
-        {(() => {
-          const activeCallout = textCallouts.find(c => currentTime >= c.startTime && currentTime <= c.endTime);
-          if (!activeCallout || isExporting) return null;
-          const badgeStyles =
-            activeCallout.style === 'fire-pill' ? 'bg-gradient-to-r from-red-600 to-amber-500 shadow-[0_0_20px_rgba(239,68,68,0.7)] text-white' :
-            activeCallout.style === 'neon-glow' ? 'bg-gradient-to-r from-purple-600 to-indigo-600 shadow-[0_0_22px_rgba(147,51,234,0.8)] text-white' :
-            activeCallout.style === 'warning-box' ? 'bg-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.6)] text-black' :
-            'bg-gradient-to-r from-cyan-500 to-blue-600 shadow-[0_0_20px_rgba(6,182,212,0.7)] text-white';
-
-          return (
-            <div 
-              className="absolute left-0 right-0 px-4 text-center pointer-events-none z-22 flex justify-center animate-in zoom-in-95 duration-200"
-              style={{ top: `${activeCallout.positionY ?? 30}%`, transform: 'translateY(-50%)' }}
-            >
-              <span className={`inline-block px-4 py-2 rounded-2xl font-black text-xs sm:text-sm md:text-base border border-white/30 backdrop-blur-md shadow-2xl ${badgeStyles}`}>
-                {activeCallout.text}
-              </span>
-            </div>
-          );
-        })()}
+        {!isExporting && textCallouts.length > 0 && <CalloutPreview callouts={textCallouts} time={currentTime} />}
 
         {displayCaption && !isExporting && (
           <CaptionPreview 
@@ -927,6 +910,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
             time={currentTime} 
             style={subtitleStyle} 
             karaoke={karaokeEnabled} 
+            positionX={captionPositionX} fontScale={captionFontScale}
             positionY={captionPositionY} 
           />
         )}
@@ -935,8 +919,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
         {isExporting && (
           <div className="absolute inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
             <Loader className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-            <h4 className="text-xl font-bold text-white mb-2">מרנדר וידאו MP4 באיכות סטודיו...</h4>
-            <p className="text-xs text-slate-400 mb-6">{exportStatusText}</p>
+            <h4 className="text-xl font-bold text-white mb-2">מייצא את הסרטון…</h4>
+            <p className="text-xs text-slate-400 mb-3">{exportStatusText}</p><p className="text-xs text-slate-400 mb-6">השאר את הדף פתוח עד שהייצוא מסתיים.</p>
             <div className="w-full max-w-xs h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700">
               <div
                 className="h-full bg-gradient-to-r from-indigo-500 to-rose-500 rounded-full transition-all duration-150"
@@ -1167,6 +1151,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
               {/* Captions Drawer Content */}
               {activeEditorDrawer === 'captions' && (
                 <div className="space-y-2.5">
+                  <OverlayControls label="כתוביות" x={captionPositionX} y={captionPositionY} scale={captionFontScale}
+                    onX={setCaptionPositionX} onY={setCaptionPositionY} onScale={setCaptionFontScale} />
                   {/* Timing Shift Helpers */}
                   {captions.length > 0 && (
                     <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 rounded-xl bg-black/40 border border-white/10 text-[10px]">
@@ -1268,6 +1254,9 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     />
                   </div>
 
+                  <OverlayControls label="כותרת" x={headlinePositionX} y={headlinePositionY} scale={headlineFontScale}
+                    onX={setHeadlinePositionX} onY={setHeadlinePositionY} onScale={setHeadlineFontScale} defaultY={10} />
+
                   {/* Style Selector Grid */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-300 block mb-1.5">בחר סגנון קריוקי:</label>
@@ -1323,59 +1312,11 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     />
                   </div>
 
-                  {/* Subtitle Height Slider & Presets */}
-                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="flex items-center gap-1.5 text-slate-200">
-                        <MoveHorizontal className="w-3.5 h-3.5 text-amber-300 rotate-90" />
-                        גובה כתוביות (הגבהה / הנמכה):
-                      </span>
-                      <span className="text-amber-300 font-mono text-[11px] bg-black/50 px-2 py-0.5 rounded-full border border-amber-400/30">
-                        {captionPositionY}% מהחלק העליון
-                      </span>
-                    </div>
-
-                    <input
-                      type="range"
-                      min="18"
-                      max="82"
-                      step="1"
-                      value={captionPositionY}
-                      onChange={(e) => setCaptionPositionY(parseInt(e.target.value, 10))}
-                      className="w-full accent-amber-400 cursor-pointer h-2 bg-slate-800 rounded-lg"
-                    />
-
-                    <div className="flex items-center justify-between gap-1.5 pt-1">
-                      <button
-                        onClick={() => setCaptionPositionY(74)}
-                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                          captionPositionY === 74 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        ⬇️ תחתון (74%)
-                      </button>
-                      <button
-                        onClick={() => setCaptionPositionY(50)}
-                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                          captionPositionY === 50 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        🎯 מרכז (50%)
-                      </button>
-                      <button
-                        onClick={() => setCaptionPositionY(25)}
-                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                          captionPositionY === 25 ? 'bg-amber-400/25 border-amber-400 text-amber-200 shadow' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        🔝 עליון (25%)
-                      </button>
-                    </div>
-                  </div>
+                  <OverlayControls label="כתוביות" x={captionPositionX} y={captionPositionY} scale={captionFontScale}
+                    onX={setCaptionPositionX} onY={setCaptionPositionY} onScale={setCaptionFontScale} />
                 </div>
               )}
 
-              
               {/* Pop-up Callouts Drawer Content */}
               {activeEditorDrawer === 'callouts' && (
                 <div className="space-y-3.5 max-h-[50vh] overflow-y-auto pr-1">
@@ -1401,6 +1342,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                             startTime: Math.max(0, currentTime),
                             endTime: Math.min(duration || 10, currentTime + 2.5),
                             style: newCalloutStyle,
+                            positionX: newCalloutPosX, fontScale: newCalloutFontScale,
                             positionY: newCalloutPosY
                           };
                           setTextCallouts(prev => [...prev, callout]);
@@ -1413,6 +1355,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     </div>
                   </div>
 
+                  <OverlayControls label="מדבקה חדשה" x={newCalloutPosX} y={newCalloutPosY} scale={newCalloutFontScale}
+                    onX={setNewCalloutPosX} onY={setNewCalloutPosY} onScale={setNewCalloutFontScale} defaultY={30} />
                   {/* Viral Presets Grid */}
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 block mb-1.5">מדבקות ויראליות מוכנות בלחיצה:</label>
@@ -1434,7 +1378,8 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                               startTime: Math.max(0, currentTime),
                               endTime: Math.min(duration || 10, currentTime + 2.5),
                               style: preset.style as TextCalloutItem['style'],
-                              positionY: newCalloutPosY
+                              positionX: newCalloutPosX, fontScale: newCalloutFontScale,
+                            positionY: newCalloutPosY
                             };
                             setTextCallouts(prev => [...prev, callout]);
                           }}
@@ -1461,7 +1406,7 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                         startTime: p.time,
                         endTime: Math.min(totalSec, p.time + 2.4),
                         style: p.style,
-                        positionY: 28
+                        positionX: newCalloutPosX, positionY: newCalloutPosY, fontScale: newCalloutFontScale
                       }));
                       setTextCallouts(newItems);
                     }}
@@ -1515,25 +1460,17 @@ export const VideoEditor: React.FC<VideoEditorProps> = ({
                     <div className="space-y-1.5 pt-2 border-t border-white/10">
                       <label className="text-[10px] font-bold text-slate-400 block">מדבקות קיימות ({textCallouts.length}):</label>
                       {textCallouts.map((callout) => (
-                        <div key={callout.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-800/70 border border-slate-700">
-                          <button
-                            onClick={() => {
-                              setCurrentTime(callout.startTime);
-                              if (videoRef.current) videoRef.current.currentTime = callout.startTime;
-                            }}
-                            className="flex items-center gap-1.5 text-xs font-bold text-white hover:text-amber-300 text-right cursor-pointer"
-                          >
-                            <Play className="w-2.5 h-2.5 fill-current" />
-                            <span>{callout.text}</span>
-                            <span className="text-[9px] text-slate-400 font-mono">({callout.startTime.toFixed(1)}s - {callout.endTime.toFixed(1)}s)</span>
-                          </button>
-                          <button
-                            onClick={() => setTextCallouts(prev => prev.filter(c => c.id !== callout.id))}
-                            className="p-1 text-slate-500 hover:text-rose-400 cursor-pointer"
-                            title="מחק מדבקה"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                        <div key={callout.id} className="space-y-2 p-3 rounded-xl bg-slate-800/70 border border-slate-700">
+                          <div className="flex items-center gap-2">
+                            <button title="הצג מדבקה" onClick={() => { videoRef.current?.pause(); setIsPlaying(false); setCurrentTime(callout.startTime); if (videoRef.current) videoRef.current.currentTime = callout.startTime; }} className="p-2"><Play className="w-4 h-4" /></button>
+                            <input aria-label="טקסט המדבקה" className="min-w-0 flex-1 rounded-lg bg-slate-900 p-2" value={callout.text}
+                              onChange={e => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, text: e.target.value } : item))} />
+                            <button title="מחק מדבקה" onClick={() => setTextCallouts(items => items.filter(item => item.id !== callout.id))} className="p-2 text-rose-300"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                          <OverlayControls label={`מדבקה: ${callout.text}`} x={callout.positionX ?? 50} y={callout.positionY ?? 30} scale={callout.fontScale ?? 1} defaultY={30}
+                            onX={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, positionX: value } : item))}
+                            onY={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, positionY: value } : item))}
+                            onScale={value => setTextCallouts(items => items.map(item => item.id === callout.id ? { ...item, fontScale: value } : item))} />
                         </div>
                       ))}
                     </div>

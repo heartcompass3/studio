@@ -14,6 +14,11 @@ export interface EditorDraft {
   exportAspectRatio: VideoAspectRatio;
   videoFitMode: "cover" | "contain";
   captionPositionY: number;
+  captionPositionX?: number;
+  captionFontScale?: number;
+  headlinePositionX?: number;
+  headlinePositionY?: number;
+  headlineFontScale?: number;
   subtitleStyle: SubtitleStyle;
   karaokeEnabled: boolean;
   headlineText: string;
